@@ -184,6 +184,7 @@ class JamesService : Service() {
                 isRunning = true
                 disconnectPending = false
                 handler.removeCallbacks(stopRunnable)
+                Parking.cancelNotification(this)   // back in the car: "find my car" no longer needed
                 // Must be called promptly after every startForegroundService().
                 if (!goForeground()) return START_NOT_STICKY
 
@@ -207,6 +208,8 @@ class JamesService : Service() {
 
             ACTION_DISCONNECTED -> {
                 if (!isRunning) { stopSelf(); return START_NOT_STICKY }
+                // First disconnect of this stop: remember where the car is parked.
+                if (!disconnectPending) Parking.capture(this)
                 disconnectPending = true
                 audioWaitToken++   // cancel any "waiting for car audio"
                 player?.pause()

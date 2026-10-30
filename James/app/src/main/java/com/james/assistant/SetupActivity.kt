@@ -59,6 +59,25 @@ class SetupActivity : ComponentActivity() {
         )
     }
 
+    private val locationLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (result.values.any { it }) askBackgroundLocation() else {
+                toast("Location is needed to remember where you park")
+            }
+            refresh()
+        }
+
+    private val backgroundLocationLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                Parking.setEnabled(this, true)
+                toast("James will remember where you park")
+            } else {
+                toast("Choose \"Allow all the time\" so James can save the spot after you leave the car")
+            }
+            refresh()
+        }
+
     private val chooserLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { onCarChosen(it) }
 
@@ -151,15 +170,33 @@ class SetupActivity : ComponentActivity() {
         wakeCard.addView(wakeInfo)
         col.addView(wakeCard, matchWrap(bottom = 32))
 
-        // Places
-        col.addView(Ui.label(this, "Places · say \"home\" or \"office\""), matchWrap(bottom = 12))
-        val places = Ui.column(this).apply { background = Ui.card(this@SetupActivity, 20) }
-        homeRow = placeRow(R.drawable.ic_home, "Home") { editPlace("Home", Prefs.home(this)) { Prefs.setHome(this, it) } }
-        places.addView(homeRow)
-        places.addView(divider())
-        officeRow = placeRow(R.drawable.ic_work, "Office") { editPlace("Office", Prefs.office(this)) { Prefs.setOffice(this, it) } }
-        places.addView(officeRow)
-        col.addView(places, matchWrap(bottom = 32))
+        // Parking
+        col.addView(Ui.label(this, "Where did I park?"), matchWrap(bottom = 12))
+        val parking = Ui.column(this).apply { background = Ui.card(this@SetupActivity, 20) }
+        parkingRow = placeRow(R.drawable.ic_car, "Remember where I park") { onParkingRowTapped() }
+        parking.addView(parkingRow)
+        parking.addView(divider())
+        parkingInfo = Ui.text(this, "", 16f, Ui.TEXT_2).apply {
+            setPadding(dp(16), dp(14), dp(16), dp(4))
+            setLineSpacing(0f, 1.25f)
+        }
+        parking.addView(parkingInfo)
+        findCarButtons = Ui.row(this).apply { setPadding(dp(16), dp(10), dp(16), dp(16)) }
+        findCarButtons.addView(pillButton("Find my car", filled = true) {
+            if (!Parking.openDirections(this)) toast("No maps app found")
+        }, LinearLayout.LayoutParams(0, dp(56), 2f).apply { marginEnd = dp(6) })
+        findCarButtons.addView(pillButton("Clear", filled = false) {
+            Parking.clear(this)
+            refresh()
+        }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginStart = dp(6) })
+        parking.addView(findCarButtons)
+        col.addView(parking, matchWrap(bottom = 32))
+
+        // Places: as many as you like, any names
+        col.addView(Ui.label(this, "Places · say \"take me to …\""), matchWrap(bottom = 12))
+        placesList = Ui.column(this).apply { background = Ui.card(this@SetupActivity, 20) }
+        col.addView(placesList, matchWrap(bottom = 32))
+        rebuildPlaces()
 
         // Music
         col.addView(Ui.label(this, "Music"), matchWrap(bottom = 12))
@@ -266,8 +303,40 @@ class SetupActivity : ComponentActivity() {
         return row
     }
 
-    private lateinit var homeRow: View
-    private lateinit var officeRow: View
+    private lateinit var placesList: LinearLayout
+    private lateinit var parkingRow: View
+    private lateinit var parkingInfo: TextView
+    private lateinit var findCarButtons: LinearLayout
+
+    // ---------- Parking ----------
+
+    private fun onParkingRowTapped() {
+        when {
+            !Parking.hasForegroundPermission(this) -> locationLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+            !Parking.hasBackgroundPermission(this) -> askBackgroundLocation()
+            else -> {
+                val on = !Parking.isEnabled(this)
+                Parking.setEnabled(this, on)
+                toast(if (on) "James will remember where you park" else "Parking spot off")
+                refresh()
+            }
+        }
+    }
+
+    /** Android asks for "Allow all the time" separately, on its own settings page. */
+    private fun askBackgroundLocation() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Allow location all the time?")
+            .setMessage("James saves where you parked right after the car disconnects, when the app isn't open. " +
+                "On the next screen, choose \"Allow all the time\". James only checks your location once per trip, when you park.")
+            .setPositiveButton("Continue") { _, _ ->
+                backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
     private lateinit var keyRow: View
     private lateinit var wakeInfo: TextView
 
@@ -331,32 +400,116 @@ class SetupActivity : ComponentActivity() {
         row.findViewWithTag<TextView>("detail")?.text = detail ?: "Tap to add an address"
     }
 
-    /** Small dialog to type or clear a saved address. */
-    private fun editPlace(name: String, current: String?, save: (String?) -> Unit) {
-        val input = android.widget.EditText(this).apply {
-            setText(current ?: "")
-            hint = "e.g. 12 Allen Avenue, Ikeja"
+    // ---------- Places ----------
+
+    /** Redraws the Places card: one row per place (tap to edit, − to remove), then "+ Add a place". */
+    private fun rebuildPlaces() {
+        placesList.removeAllViews()
+        val list = Places.all(this)
+        list.forEach { place ->
+            placesList.addView(placeItem(place))
+            placesList.addView(divider())
+        }
+        if (list.size < Places.MAX) {
+            val add = Ui.row(this).apply {
+                setPadding(dp(16), dp(16), dp(16), dp(16))
+                background = Ui.pressable(Ui.rounded(this@SetupActivity, Color.TRANSPARENT, 20))
+                isClickable = true
+                isFocusable = true
+                minimumHeight = dp(64)
+                contentDescription = "Add a place"
+                setOnClickListener { editPlace(null) }
+            }
+            add.addView(LinearLayout(this).apply {
+                gravity = Gravity.CENTER
+                background = Ui.oval(this@SetupActivity, Ui.GREEN_DIM)
+                addView(Ui.icon(this@SetupActivity, R.drawable.ic_add, Ui.GREEN), LinearLayout.LayoutParams(dp(22), dp(22)))
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            add.addView(Ui.text(this, "Add a place", 18f, Ui.GREEN, bold = true).apply { setPadding(dp(14), 0, 0, 0) })
+            placesList.addView(add)
+        } else if (placesList.childCount > 0) {
+            placesList.removeViewAt(placesList.childCount - 1)   // no divider after the last place
+        }
+    }
+
+    private fun placeItem(place: Place): View {
+        val row = Ui.row(this).apply {
+            setPadding(dp(16), dp(12), dp(4), dp(12))
+            background = Ui.pressable(Ui.rounded(this@SetupActivity, Color.TRANSPARENT, 20))
+            isClickable = true
+            isFocusable = true
+            minimumHeight = dp(72)
+            contentDescription = "Edit ${place.name}"
+            setOnClickListener { editPlace(place) }
+        }
+        val icon = when (place.name.lowercase()) {
+            "home", "house" -> R.drawable.ic_home
+            "office", "work" -> R.drawable.ic_work
+            else -> R.drawable.ic_place
+        }
+        row.addView(Ui.icon(this, icon, Ui.GREEN), LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) })
+        val texts = Ui.column(this).apply { setPadding(dp(16), 0, dp(8), 0) }
+        texts.addView(Ui.text(this, place.name, 18f, bold = true, oneLine = true))
+        texts.addView(Ui.text(this, place.address, 15f, Ui.TEXT_2, oneLine = true).apply { setPadding(0, dp(4), 0, 0) })
+        row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // "−": remove (asks first)
+        row.addView(Ui.circleButton(this, R.drawable.ic_remove, 48, 26, Color.TRANSPARENT, Ui.TEXT_2, "Remove ${place.name}") {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Remove ${place.name}?")
+                .setMessage(place.address)
+                .setPositiveButton("Remove") { _, _ ->
+                    Places.remove(this, place.name)
+                    rebuildPlaces()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        return row
+    }
+
+    /** Add ([existing] = null) or edit a place: a name and an address. */
+    private fun editPlace(existing: Place?) {
+        val name = android.widget.EditText(this).apply {
+            setText(existing?.name ?: "")
+            hint = "Name, e.g. Home, Office, Church, Gym"
             setSingleLine(true)
-            setSelection(text.length)
         }
-        val box = android.widget.FrameLayout(this).apply {
+        val address = android.widget.EditText(this).apply {
+            setText(existing?.address ?: "")
+            hint = "Address, e.g. 12 Allen Avenue, Ikeja"
+            setSingleLine(true)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
-            addView(input)
+            addView(name)
+            addView(address)
         }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("$name address")
-            .setMessage("Say \"${name.lowercase()}\" on the Map screen to go here.")
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "Add a place" else "Edit ${existing.name}")
+            .setMessage("Then say \"Hey James, take me to <name>\", or tap it in Quick picks.")
             .setView(box)
-            .setPositiveButton("Save") { _, _ ->
-                save(input.text.toString().trim().ifEmpty { null })
-                refresh()
-            }
-            .setNeutralButton("Clear") { _, _ ->
-                save(null)
-                refresh()
-            }
+            .setPositiveButton("Save", null)   // set below, so a blank field doesn't close the dialog
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val n = name.text.toString().trim()
+                val a = address.text.toString().trim()
+                when {
+                    n.isEmpty() -> name.error = "Give it a name"
+                    a.isEmpty() -> address.error = "Add the address"
+                    existing == null && Places.all(this).any { it.name.equals(n, ignoreCase = true) } ->
+                        name.error = "You already have a place called $n"
+                    else -> {
+                        Places.put(this, Place(n, a), oldName = existing?.name)
+                        rebuildPlaces()
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun divider() = View(this).apply {
@@ -451,9 +604,18 @@ class SetupActivity : ComponentActivity() {
             else -> "Starts listening for \"Hey James\" the next time James starts."
         }
 
-        // Places
-        setPlaceDetail(homeRow, Prefs.home(this))
-        setPlaceDetail(officeRow, Prefs.office(this))
+
+        // Parking
+        setPlaceDetail(parkingRow, when {
+            !Parking.hasForegroundPermission(this) -> "Off · tap to allow location"
+            !Parking.hasBackgroundPermission(this) -> "Needs \"Allow all the time\" · tap to fix"
+            Parking.isEnabled(this) -> "On · saved when the car disconnects"
+            else -> "Off · tap to turn on"
+        })
+        val spot = Parking.last(this)
+        parkingInfo.text = if (spot == null) "No parking spot saved yet."
+        else "Car parked ${Parking.timeLabel(this, spot)} (within about ${spot.accuracyM.toInt().coerceAtLeast(5)} m)."
+        findCarButtons.visibility = if (spot == null) View.GONE else View.VISIBLE
 
         // Music
         musicDefault.text = musicSummary.first
@@ -476,7 +638,9 @@ class SetupActivity : ComponentActivity() {
         else "No Music/${MusicLibrary.DEFAULT_FOLDER} folder yet"
         val others = folders.filter { it !== default }
         val second = if (others.isEmpty()) "No playlists yet"
-        else "Playlists: " + others.joinToString(" · ") { "${it.name.replace('_', ' ')} (${it.tracks.size})" }
+        else "Playlists: " + others.joinToString(" · ") {
+            "${it.name.replace('_', ' ')} (${if (it.tracks.isEmpty()) "no songs" else it.tracks.size.toString()})"
+        }
         return first to second
     }
 

@@ -19,7 +19,7 @@ What James does now:
 - **Milestone 4:** Maps by voice.
   - Tap **MAP**: James asks "Where are we going?", then listens (music pauses while he listens).
   - Say a place, e.g. "Computer Village Ikeja", or "take me to Lekki Phase 1". The card shows **Heard: …**, James says "Going to …", and the **Go** button counts down 3-2-1, then Google Maps opens in driving navigation. Tap **Go** to leave straight away, or **Cancel**.
-  - Say **"home"** or **"office"** to use the addresses saved in setup. **Quick picks** show Home, Office and your last 3 trips.
+  - Say the name of any **saved place** ("home", "office", "church"…). **Quick picks** show your saved places and your last 3 trips.
   - Didn't catch it? James asks again (twice), then offers **Speak again**.
 
 - **Milestone 5:** the wake word and voice commands.
@@ -34,9 +34,21 @@ What James does now:
     | "Shuffle" | Shuffles all your songs |
     | "Map" | Asks "Where are we going?" |
     | "Take me to Computer Village" | Goes straight to the Go countdown |
-    | "Take me home" / "Go to the office" | Uses your saved places |
+    | "Take me home" / "Take me to church" | Uses your saved places (any name) |
     | "Go" / "Cancel" (during the countdown) | Leaves now, or cancels the trip |
     | "Close" / "Never mind" | Back to the bubble |
+
+## Saved places
+
+Setup → **Places**: tap **+ Add a place** and give it any name and address (up to 12). Tap a place to rename it or change the address, or **−** to remove it. Then say "Hey James, take me to *name*", or tap it in Quick picks on the Map screen.
+
+## Where did I park?
+
+When the car's Bluetooth disconnects, James saves where you are, and a notification says **"Your car is parked here · tap for walking directions"**. Setup → **Where did I park?** also shows the spot with a **Find my car** button.
+
+- Turn it on in setup by tapping **Remember where I park**, then allow location and choose **"Allow all the time"** (needed because James saves the spot after the car is gone). He only checks your location once per trip.
+- In underground car parks GPS is weak, so the pin may be at the entrance rather than your exact bay.
+- The notification clears itself when the car connects again.
 
 ## Wake word setup (once)
 
@@ -68,7 +80,7 @@ MP3, M4A, AAC, OGG, FLAC and WAV all work. If you just copied songs from a lapto
 
 ## Test
 
-1. Open James and tap **Permissions**: allow the new **microphone** permission. Under **Places**, add your Home and Office addresses (optional).
+1. Open James and tap **Permissions** and allow everything. Under **Places**, add the places you go to (optional). Tap **Remember where I park** to turn on the parking pin (optional).
 2. The screen should show `Default music: N songs in James_Default` and your other folders.
 3. Close James, turn your Bluetooth device off, then on. Music should start within a few seconds, and the notification shows the song with Previous / Pause / Next.
 4. Press the next/pause buttons on the car or earbuds.

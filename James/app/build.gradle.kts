@@ -13,8 +13,8 @@ android {
         applicationId = "com.james.assistant"
         minSdk = 29          // Android 10+
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.5.2-m5"
+        versionCode = 16
+        versionName = "0.6-places-parking"
     }
 
     buildTypes {

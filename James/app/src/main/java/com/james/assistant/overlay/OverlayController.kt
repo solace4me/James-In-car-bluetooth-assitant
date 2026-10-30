@@ -36,6 +36,7 @@ import android.widget.TextView
 import com.james.assistant.JamesService
 import com.james.assistant.MusicFolder
 import com.james.assistant.MusicLibrary
+import com.james.assistant.Places
 import com.james.assistant.Prefs
 import com.james.assistant.R
 import com.james.assistant.VoiceInput
@@ -496,9 +497,9 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         // MUSIC and MAP.
         val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(bigTile("Music", "Pick a playlist", R.drawable.ic_music, Ui.GREEN) { showPage(Page.MUSIC) },
-            LinearLayout.LayoutParams(0, dp(112), 1f).apply { marginEnd = dp(6) })
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
         row.addView(bigTile("Map", "Start a trip", R.drawable.ic_place, 0xFF5B8DEF.toInt()) { showPage(Page.MAP) },
-            LinearLayout.LayoutParams(0, dp(112), 1f).apply { marginStart = dp(6) })
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
         col.addView(row)
         return col
     }
@@ -577,7 +578,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             artUri = null
             return
         }
-        setIfChanged(v.title, now.title)
+        setIfChanged(v.title, now.title.replace('_', ' '))
         setIfChanged(v.sub, spoken(now.folder))
         v.wave.animating = now.isPlaying
         setPlayIcon(v, now.isPlaying)
@@ -591,7 +592,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             if (io.isShutdown) return
             val px = dp(64)
             io.execute {
-                val bmp = try { ctx.contentResolver.loadThumbnail(uri, Size(px, px), null) } catch (e: Exception) { null }
+                val bmp = MusicLibrary.loadArt(ctx, uri, px)
                 if (bmp != null) main.post {
                     if (released || np !== v || artUri != uri) return@post
                     v.art.setImageBitmap(bmp)
@@ -668,11 +669,12 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             main.post {
                 if (!released && scroll.isAttachedToWindow) {
                     Log.i(JamesService.TAG, "Playlist page: ${folders.size} folders")
-                    subtitle.text = when (folders.size) {
-                        0 -> "No playlists yet"
-                        1 -> "1 playlist"
-                        in 2..4 -> "${folders.size} playlists"
-                        else -> "${folders.size} playlists · scroll for more"
+                    val playable = folders.count { it.tracks.isNotEmpty() }
+                    val empty = folders.size - playable
+                    subtitle.text = buildString {
+                        append(when (playable) { 0 -> "No playlists yet"; 1 -> "1 playlist"; else -> "$playable playlists" })
+                        if (empty > 0) append(" · $empty empty")
+                        if (folders.size > 4) append(" · scroll for more")
                     }
                     fillGrid(grid, folders)
                 }
@@ -684,23 +686,17 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
     private fun fillGrid(grid: LinearLayout, folders: List<MusicFolder>) {
         grid.removeAllViews()
         if (folders.isEmpty()) {
-            grid.addView(text("No music found. Put folders of songs inside the Music folder.", 18f, SECONDARY))
+            grid.addView(text("No folders found. Put folders of songs inside the Music folder on your phone.", 18f, SECONDARY))
             return
         }
         val current = actions.currentFolder()
-        folders.chunked(2).forEachIndexed { rowIndex, pair ->
-            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-            pair.forEachIndexed { i, folder ->
-                val colorIndex = rowIndex * 2 + i
-                val card = folderCard(folder, TILE_COLORS[colorIndex % TILE_COLORS.size],
-                    folder.name.equals(current, ignoreCase = true))
-                row.addView(card, LinearLayout.LayoutParams(0, dp(92), 1f).apply {
-                    if (i == 0) marginEnd = dp(6) else marginStart = dp(6)
-                })
-            }
-            if (pair.size == 1) row.addView(View(ctx), LinearLayout.LayoutParams(0, dp(92), 1f).apply { marginStart = dp(6) })
-            grid.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(12)
+        // Folders with songs first, empty ones at the end.
+        val ordered = folders.filter { it.tracks.isNotEmpty() } + folders.filter { it.tracks.isEmpty() }
+        ordered.forEachIndexed { i, folder ->
+            val card = folderCard(folder, TILE_COLORS[i % TILE_COLORS.size],
+                folder.name.equals(current, ignoreCase = true))
+            grid.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80)).apply {
+                bottomMargin = dp(10)
             })
         }
     }
@@ -713,10 +709,12 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             background = pressable(
                 Ui.card(ctx, 18).apply { if (isCurrent) setStroke(dp(3), GREEN) }
             )
-            isClickable = true
-            isFocusable = true
-            contentDescription = "Play ${spoken(folder.name)}"
-            setOnClickListener {
+            val hasSongs = folder.tracks.isNotEmpty()
+            isClickable = hasSongs
+            isFocusable = hasSongs
+            alpha = if (hasSongs) 1f else 0.5f
+            contentDescription = if (hasSongs) "Play ${spoken(folder.name)}" else "${spoken(folder.name)}, no songs"
+            if (hasSongs) setOnClickListener {
                 actions.playFolder(folder.name)
                 collapse()
             }
@@ -735,26 +733,27 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
                 }
             }
         }
-        card.addView(art, LinearLayout.LayoutParams(dp(60), dp(60)))
+        card.addView(art, LinearLayout.LayoutParams(dp(56), dp(56)))
 
         val texts = vertical().apply { setPadding(dp(12), 0, 0, 0) }
         texts.addView(text(folder.name.replace('_', ' '), 20f, Color.WHITE, bold = true).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         })
-        texts.addView(text("${folder.tracks.size} tracks", 16f, SECONDARY).apply { maxLines = 1 })
+        val count = when (folder.tracks.size) {
+            0 -> "No songs"
+            1 -> "1 song"
+            else -> "${folder.tracks.size} songs"
+        }
+        texts.addView(text(count, 16f, SECONDARY).apply { maxLines = 1 })
         card.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         // Album art from the first song, if it has any.
         val first = folder.tracks.firstOrNull()?.uri
         if (first != null && !io.isShutdown) {
-            val px = dp(60)
+            val px = dp(56)
             io.execute {
-                val bmp = try {
-                    ctx.contentResolver.loadThumbnail(first, Size(px, px), null)
-                } catch (e: Exception) {
-                    null   // no embedded art: keep the coloured folder tile
-                }
+                val bmp = MusicLibrary.loadArt(ctx, first, px)   // null: keep the coloured folder tile
                 if (bmp != null) main.post {
                     if (released) return@post
                     art.setImageBitmap(bmp)
@@ -889,14 +888,13 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
     private fun quickPicks(): View? {
         val items = mutableListOf<Triple<String, String, Int>>()   // label, address, icon
-        Prefs.home(ctx)?.let { items += Triple("Home", it, R.drawable.ic_home) }
-        Prefs.office(ctx)?.let { items += Triple("Office", it, R.drawable.ic_work) }
+        Places.all(ctx).forEach { p -> items += Triple(p.name, p.address, placeIcon(p.name)) }
         Prefs.recents(ctx).forEach { r ->
             if (items.none { it.second.equals(r, ignoreCase = true) }) items += Triple(r, r, R.drawable.ic_history)
         }
         if (items.isEmpty()) return null
         val row = Ui.row(ctx)
-        items.take(4).forEach { (label, address, icon) ->
+        items.take(8).forEach { (label, address, icon) ->
             row.addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -914,6 +912,12 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             isHorizontalScrollBarEnabled = false
             addView(row)
         }
+    }
+
+    private fun placeIcon(name: String): Int = when (name.lowercase()) {
+        "home", "house" -> R.drawable.ic_home
+        "office", "work" -> R.drawable.ic_work
+        else -> R.drawable.ic_place
     }
 
     /** Says [prompt] (if any), then listens for a destination. */
@@ -1033,7 +1037,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             confirm(resolved.first, spokenName = resolved.second)
         } else {
             m.label.text = "Not saved yet"
-            m.heard.text = "Add your ${said.trim()} address in James setup."
+            m.heard.text = "Add it under Places in James setup."
             m.retry.visibility = View.VISIBLE
             actions.say("You haven't saved that place yet. You can add it in James setup.")
         }
@@ -1051,11 +1055,12 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             "we are going to ", "we're going to ", "i'm going to ", "to "
         )
         prefixes.firstOrNull { t.lowercase().startsWith(it) }?.let { t = t.substring(it.length).trim() }
-        return when (t.lowercase()) {
-            "home", "my house", "house", "my home", "go home" -> Prefs.home(ctx)?.let { it to "home" }
-            "office", "my office", "work", "the office" -> Prefs.office(ctx)?.let { it to "the office" }
-            else -> t to t
-        }
+        // A saved place ("church", "my office", "home")?
+        Places.find(ctx, t)?.let { return it.address to it.name }
+        // They asked for Home or Office but haven't saved it: say so instead of searching the map.
+        val bare = t.lowercase().removePrefix("my ").removePrefix("the ").removePrefix("go ").trim()
+        if (bare in setOf("home", "house", "office", "work")) return null
+        return t to t
     }
 
     /** Shows "Heard: <place>", says it, and starts the 3-second Go countdown. */
@@ -1207,6 +1212,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         when {
             destination != null -> showPage(Page.MAP, destination)
             t in HOME_WORDS -> showPage(Page.MAP, "home")
+            Places.find(ctx, t) != null -> showPage(Page.MAP, t)
             t in MAP_WORDS -> showPage(Page.MAP)
             t in MUSIC_WORDS -> showPage(Page.MUSIC)
             t.contains("shuffle") -> { actions.shuffleAll(); collapse() }
@@ -1280,7 +1286,8 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(14), dp(12), dp(14))
+            setPadding(dp(16), dp(14), dp(12), dp(16))
+            minimumHeight = dp(112)
             background = Ui.pressable(Ui.card(ctx, 24))
             isClickable = true
             isFocusable = true
