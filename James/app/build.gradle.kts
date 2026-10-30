@@ -13,8 +13,8 @@ android {
         applicationId = "com.james.assistant"
         minSdk = 29          // Android 10+
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.5.1-m5"
+        versionCode = 14
+        versionName = "0.5.2-m5"
     }
 
     buildTypes {

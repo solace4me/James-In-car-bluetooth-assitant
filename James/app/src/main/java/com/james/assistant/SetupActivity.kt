@@ -304,6 +304,61 @@ class SetupActivity : ComponentActivity() {
             .show()
     }
 
+    /** A tappable row with an icon, a title and a detail line (Home, Office, Voice model). */
+    private fun placeRow(icon: Int, title: String, onClick: () -> Unit): View {
+        val row = Ui.row(this).apply {
+            setPadding(dp(16), dp(16), dp(12), dp(16))
+            background = Ui.pressable(Ui.rounded(this@SetupActivity, Color.TRANSPARENT, 20))
+            isClickable = true
+            isFocusable = true
+            minimumHeight = dp(72)
+            setOnClickListener { onClick() }
+        }
+        row.addView(Ui.icon(this, icon, Ui.GREEN), LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) })
+        val texts = Ui.column(this).apply { setPadding(dp(16), 0, dp(8), 0) }
+        texts.addView(Ui.text(this, title, 18f, bold = true))
+        texts.addView(Ui.text(this, "", 15f, Ui.TEXT_2, oneLine = true).apply {
+            setPadding(0, dp(4), 0, 0)
+            tag = "detail"
+        })
+        row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(Ui.icon(this, R.drawable.ic_chevron_right, Ui.TEXT_3), LinearLayout.LayoutParams(dp(24), dp(24)))
+        return row
+    }
+
+    /** Sets the detail line of a [placeRow]; for places, null means "not set yet". */
+    private fun setPlaceDetail(row: View, detail: String?) {
+        row.findViewWithTag<TextView>("detail")?.text = detail ?: "Tap to add an address"
+    }
+
+    /** Small dialog to type or clear a saved address. */
+    private fun editPlace(name: String, current: String?, save: (String?) -> Unit) {
+        val input = android.widget.EditText(this).apply {
+            setText(current ?: "")
+            hint = "e.g. 12 Allen Avenue, Ikeja"
+            setSingleLine(true)
+            setSelection(text.length)
+        }
+        val box = android.widget.FrameLayout(this).apply {
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(input)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("$name address")
+            .setMessage("Say \"${name.lowercase()}\" on the Map screen to go here.")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                save(input.text.toString().trim().ifEmpty { null })
+                refresh()
+            }
+            .setNeutralButton("Clear") { _, _ ->
+                save(null)
+                refresh()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun divider() = View(this).apply {
         setBackgroundColor(Ui.HAIRLINE)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
