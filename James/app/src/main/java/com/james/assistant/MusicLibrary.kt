@@ -27,7 +27,14 @@ data class MusicFolder(val name: String, val tracks: List<Track>)
  */
 object MusicLibrary {
 
-    const val DEFAULT_FOLDER = "James_Default"
+    const val DEFAULT_FOLDER = "Azarah_Default"
+
+    /** The default folder's name before the app was renamed; still played if Azarah_Default doesn't exist. */
+    const val OLD_DEFAULT_FOLDER = "James_Default"
+
+    /** True for the folder that plays on connect (Azarah_Default, or the older James_Default). */
+    fun isDefault(name: String) =
+        name.equals(DEFAULT_FOLDER, ignoreCase = true) || name.equals(OLD_DEFAULT_FOLDER, ignoreCase = true)
 
     /** Not a real folder: every song in every Music folder, played shuffled ("Shuffle all"). */
     const val ALL_SONGS = "All songs"
@@ -38,7 +45,21 @@ object MusicLibrary {
     private const val MAX_DEPTH = 4
     private const val MAX_FILES = 5000
 
+    /** Last scan, reused for a few seconds so back-to-back lookups don't re-read the whole library. */
+    @Volatile private var cache: Pair<Long, List<MusicFolder>>? = null
+    private const val CACHE_MS = 10_000L
+
+    /** All playlists. Can take a moment with a big library: call it off the main thread. */
     fun folders(ctx: Context): List<MusicFolder> {
+        val c = cache
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (c != null && now - c.first < CACHE_MS) return c.second
+        val fresh = scan(ctx)
+        cache = now to fresh
+        return fresh
+    }
+
+    private fun scan(ctx: Context): List<MusicFolder> {
         val byFolder = linkedMapOf<String, MutableList<Track>>()
         // "music/gospel/song.mp3" (lower case) for every song the media index knows about.
         val indexed = HashSet<String>()
@@ -117,7 +138,7 @@ object MusicLibrary {
         }
 
         return byFolder.map { (name, tracks) -> MusicFolder(name, tracks) }
-            .sortedWith(compareBy({ !it.name.equals(DEFAULT_FOLDER, true) }, { it.name.lowercase() }))
+            .sortedWith(compareBy({ !isDefault(it.name) }, { it.name.lowercase() }))
     }
 
     private fun walk(dir: File, depth: Int, onSong: (File) -> Unit) {
@@ -144,7 +165,12 @@ object MusicLibrary {
             val tracks = all.flatMap { it.tracks }
             return if (tracks.isEmpty()) null else MusicFolder(ALL_SONGS, tracks)
         }
-        return all.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        all.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { return it }
+        // Renamed app: an existing Music/James_Default folder still plays on connect.
+        if (name.equals(DEFAULT_FOLDER, ignoreCase = true)) {
+            return all.firstOrNull { it.name.equals(OLD_DEFAULT_FOLDER, ignoreCase = true) }
+        }
+        return null
     }
 
     /**

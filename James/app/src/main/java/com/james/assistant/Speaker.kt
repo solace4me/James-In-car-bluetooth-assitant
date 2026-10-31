@@ -50,6 +50,7 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
         if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
             tts.setLanguage(Locale.UK)
         }
+        useFemaleVoice()
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) = finished(utteranceId)
@@ -63,8 +64,33 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
         pending = null
     }
 
+    /** Azarah is a woman's name: use a female voice whenever the phone has one (see [VoicePicker]). */
+    private fun useFemaleVoice() {
+        try {
+            val voices = tts.voices ?: return
+            val wanted = tts.voice?.locale ?: Locale.getDefault()
+            val options = voices.map { v ->
+                VoicePicker.Option(
+                    name = v.name,
+                    locale = v.locale,
+                    needsNetwork = v.isNetworkConnectionRequired,
+                    installed = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+                )
+            }
+            val name = VoicePicker.pick(options, wanted)
+            if (name == null) {
+                Log.i(JamesService.TAG, "No female voice found; using the phone's default voice")
+                return
+            }
+            val voice = voices.first { it.name == name }
+            if (tts.setVoice(voice) == TextToSpeech.SUCCESS) Log.i(JamesService.TAG, "Voice: $name")
+        } catch (e: Exception) {
+            Log.w(JamesService.TAG, "Couldn't choose a voice: ${e.message}")
+        }
+    }
+
     /**
-     * Speaks [text], replacing anything James was already saying.
+     * Speaks [text], replacing anything Azarah was already saying.
      * [onDone] runs on the main thread when it has finished (or straight away if speech isn't available),
      * so James can start listening only after he has stopped talking.
      */
@@ -72,7 +98,11 @@ class Speaker(ctx: Context) : TextToSpeech.OnInitListener {
         if (shutDown) return
         if (!ready) {
             if (initFailed) { onDone?.let { cb -> main.post { cb() } }; return }
-            pending = text to onDone   // TTS still starting up: say it as soon as it's ready
+            // TTS still starting up: say it as soon as it's ready. Only the latest sentence is kept,
+            // but a replaced sentence's onDone must still run, or whoever waits on it gets stuck
+            // (e.g. the wake word staying paused).
+            pending?.second?.let { cb -> main.post { if (!shutDown) cb() } }
+            pending = text to onDone
             return
         }
         val id = "james-${System.nanoTime()}"

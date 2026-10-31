@@ -1,91 +1,157 @@
-# JAMES — Milestone 5: "Hey James"
+# Azarah: in-car Bluetooth assistant
 
-Works on any Android phone running Android 10 or newer.
+Azarah is an Android app that wakes up when your phone connects to your car's Bluetooth. It plays your music, starts Google Maps navigation and answers to **"Hey Azarah"** (Azarah is Hebrew for "help"), so you don't have to touch the phone while driving.
 
-What James does now:
-- **Milestone 1:** starts when your saved car/Bluetooth device connects, stops 10 s after it disconnects.
-- **Milestone 2:** on connect, plays every song in `Music/James_Default`, looping.
-  - Previous / Play-Pause / Next / Stop buttons in the "James is active" notification.
-  - The car's steering-wheel buttons and earbud buttons control it too.
-  - If the car disconnects, music pauses at once. Next time it connects, music continues from the same song and second (or starts James_Default if that song is gone).
+- Works on any Android phone running **Android 10 or newer**.
+- Everything shows on the **phone**, as a floating bubble and a sheet drawn over other apps (Google Maps included). It is not an Android Auto app; the car's Bluetooth is only the trigger.
+- No account or sign-up. The "Hey Azarah" listener runs offline on the phone.
 
-- **Milestone 3:** the overlay, drawn on top of any app (Google Maps included).
-  - On connect, the sheet opens: James's status, a **now-playing card** (album art, song, folder, progress, Previous / Play-Pause / Next), and the **MUSIC** and **MAP** tiles. Tap outside it, swipe it down, or leave it 20 s, and it shrinks to the "J" bubble.
-  - Drag the bubble anywhere; it snaps to the nearest side. Tap it to open the sheet again. Tapping the notification also opens it.
-  - **MUSIC** shows a card per folder (album art from its first song), with the playing folder outlined in green. Tap a card to play it; James says "Playing Gospel". **Shuffle all** plays every song shuffled.
-  - **MUSIC** list scrolls when you have many playlists (scrollbar and faded edges show there's more).
-  - If the bubble ever goes missing, James puts it back within 2 seconds.
+Version: **0.7.1** (see `versionName` in `app/build.gradle.kts`).
 
-- **Milestone 4:** Maps by voice.
-  - Tap **MAP**: James asks "Where are we going?", then listens (music pauses while he listens).
-  - Say a place, e.g. "Computer Village Ikeja", or "take me to Lekki Phase 1". The card shows **Heard: …**, James says "Going to …", and the **Go** button counts down 3-2-1, then Google Maps opens in driving navigation. Tap **Go** to leave straight away, or **Cancel**.
-  - Say the name of any **saved place** ("home", "office", "church"…). **Quick picks** show your saved places and your last 3 trips.
-  - Didn't catch it? James asks again (twice), then offers **Speak again**.
+## What it does
 
-- **Milestone 5:** the wake word and voice commands.
-  - Say **"Hey James"** (or "Okay James") any time. The sheet opens, James says "Speak on, I'm listening", and the music pauses while he listens. The bubble's dot is **green** while he's listening for the wake word.
-  - Then say:
+**When the car connects**
+- Azarah starts on her own (an "Azarah is active" notification shows she's running).
+- The sheet slides up with a now-playing card and big **MUSIC** and **MAP** tiles.
+- Music starts from `Music/Azarah_Default` (or an older `Music/James_Default`) once the car's music channel is ready, continuing from the song and second where it last stopped.
 
-    | Say | James does |
-    | --- | --- |
-    | "Music" | Opens your playlists |
-    | "Play Gospel" (or just "Gospel") | Plays that folder, even if you say it a bit differently |
-    | "Play" / "Pause" / "Next" / "Previous" | Controls the music |
-    | "Shuffle" | Shuffles all your songs |
-    | "Map" | Asks "Where are we going?" |
-    | "Take me to Computer Village" | Goes straight to the Go countdown |
-    | "Take me home" / "Take me to church" | Uses your saved places (any name) |
-    | "Go" / "Cancel" (during the countdown) | Leaves now, or cancels the trip |
-    | "Close" / "Never mind" | Back to the bubble |
+**Music**
+- Every folder directly inside `Music` is a playlist (songs in its subfolders count too). Tap one, or say its name.
+- Previous / Play-Pause / Next on the sheet, in the notification, and on the steering wheel or earbuds.
+- **Shuffle all** plays every song shuffled.
 
-## Saved places
+**Maps**
+- Tap **MAP** (or say "map"): Azarah asks "Where are we going?" and listens.
+- Say a place ("Computer Village Ikeja") or a saved place ("church"). Azarah shows **Heard: …**, counts down 3-2-1 and opens Google Maps in driving navigation. Tap **Go** to leave now or **Cancel**.
+- **Quick picks** show your saved places and last 3 trips.
 
-Setup → **Places**: tap **+ Add a place** and give it any name and address (up to 12). Tap a place to rename it or change the address, or **−** to remove it. Then say "Hey James, take me to *name*", or tap it in Quick picks on the Map screen.
+**"Hey Azarah"** (also "Hello Azarah", "Hi Azarah", "Okay Azarah"): say it any time. The bubble's dot is green while she's listening. Azarah answers and listens for the command; the music pauses meanwhile. If she doesn't catch it, she asks again (twice) without needing the wake word.
 
-## Where did I park?
+**In one breath**: "Azarah, play the music", "Azarah, next song", "Azarah, pause", "Azarah, take me home", "Azarah, map" are done straight away, with no question first. "Azarah, take me to …" opens the map and asks where (the wake-word listener can't hear addresses).
 
-When the car's Bluetooth disconnects, James saves where you are, and a notification says **"Your car is parked here · tap for walking directions"**. Setup → **Where did I park?** also shows the spot with a **Find my car** button.
+Say "a-ZAH-rah". On its own, a stray "Azarah" (or "Sarah") in conversation doesn't wake Azarah; it needs a greeting before it or a command after it.
 
-- Turn it on in setup by tapping **Remember where I park**, then allow location and choose **"Allow all the time"** (needed because James saves the spot after the car is gone). He only checks your location once per trip.
-- In underground car parks GPS is weak, so the pin may be at the entrance rather than your exact bay.
-- The notification clears itself when the car connects again.
+After the wake word:
 
-## Wake word setup (once)
+| Say | Azarah does |
+| --- | --- |
+| "Music" | Opens your playlists |
+| "Play Gospel" (or just "Gospel") | Plays that playlist, even if the name is heard a bit wrong |
+| "Play" / "Pause" / "Next" / "Previous" | Controls the music |
+| "Shuffle" | Shuffles all your songs |
+| "Map" | Asks "Where are we going?" |
+| "Take me to Computer Village" | Goes straight to the Go countdown |
+| "Take me home" / "Church" | Uses your saved places |
+| "Go" / "Cancel" (during the countdown) | Leaves now, or cancels the trip |
+| "Close" / "Never mind" | Back to the bubble |
 
-"Hey James" uses **Vosk**, a free, open-source speech engine that runs on the phone without the internet. No account, key or training needed.
+**Saved places**: setup → **Places** → **+ Add a place**, with any name and address (up to 12). Tap a place to edit it, or **−** to remove it.
 
-1. Open James setup → **Wake word** → **Voice model** and tap **Download** (about 40 MB, once; Wi-Fi recommended).
-2. When it says **Ready**, James listens for "Hey James" from the next car connection (or straight away if he's already running).
+**Where did I park?** When the car disconnects, Azarah saves where you are and shows "Your car is parked here · tap for walking directions". Setup also has **Find my car**. In underground car parks the pin may be at the entrance.
 
-James only listens for "hey james" / "okay james"; anything else is ignored, which keeps false wake-ups from music and chatter low.
+**The bubble**: drag it anywhere (it snaps to the side). Tap it, or the notification, to open the sheet. Tap outside the sheet, swipe it down, or leave it for 20 s and it shrinks back to the bubble.
 
-## Music folders
+## First-time setup on the phone
 
-Put songs on the phone like this (folder names are not case-sensitive):
+Do this once, parked, with the car (or Bluetooth earbuds, for a desk test) paired in the phone's Bluetooth settings.
+
+1. Open **Azarah**.
+2. **Permissions**: allow Bluetooth, notifications, music and microphone.
+3. **Your car**: pick your car's Bluetooth from the list. To change car later, tap it again.
+4. **Run in background**: set Azarah to *Unrestricted* / *Don't optimise*. On Xiaomi, Tecno, Infinix, itel, Oppo and Samsung, also turn on **Autostart** for Azarah in the phone's settings.
+5. **Show over other apps**: switch it on for Azarah.
+6. **Wake word → Voice model**: tap to download it (about 40 MB, once; Wi-Fi recommended).
+7. Optional: add **Places**, and tap **Remember where I park** (needs location set to **"Allow all the time"**).
+
+Every row ticks green when it's done.
+
+### Music folders
 
 ```
 Internal storage/
 └── Music/
-    ├── James_Default/   ← plays automatically on connect
-    ├── Gospel/          ← playlists for Milestone 3
-    └── Afrobeats/
+    ├── Azarah_Default/  ← plays automatically when the car connects
+    ├── Gospel/          ← a playlist
+    └── Afrobeats/       ← another playlist
 ```
 
-MP3, M4A, AAC, OGG, FLAC and WAV all work. If you just copied songs from a laptop and James says the folder is empty, wait a minute or restart the phone so Android indexes the new files.
+MP3, M4A, AAC, OGG, OPUS, FLAC and WAV all work. Folder names aren't case-sensitive; underscores are read as spaces ("Azarah_Default" is "Azarah Default").
 
-## Build and install
+## Building
 
-1. Unzip over your existing James folder (replace files).
-2. Phone plugged in, USB debugging on: `gradlew installDebug` (Windows) or `./gradlew installDebug` (Mac/Linux).
+You need **JDK 17 or newer** and the **Android SDK** (Android Studio, or the command-line tools with `platform-tools`, `platforms;android-35` and `build-tools;35.0.0`). Set `ANDROID_HOME` to the SDK folder.
 
-## Test
+With the phone plugged in and USB debugging on:
 
-1. Open James and tap **Permissions** and allow everything. Under **Places**, add the places you go to (optional). Tap **Remember where I park** to turn on the parking pin (optional).
-2. The screen should show `Default music: N songs in James_Default` and your other folders.
-3. Close James, turn your Bluetooth device off, then on. Music should start within a few seconds, and the notification shows the song with Previous / Pause / Next.
-4. Press the next/pause buttons on the car or earbuds.
-5. Turn the device off: music pauses right away, and James stops about 10 s later.
+```
+gradlew installDebug        # Windows
+./gradlew installDebug      # Mac / Linux
+```
 
-## Logs
+The first build downloads Gradle and the libraries, so it needs internet and takes a few minutes.
 
-`adb logcat -s James`
+## Testing
+
+```
+gradlew test
+```
+
+runs the unit tests for voice commands, playlist matching and saved places, plus Android lifecycle regressions under Robolectric, with no phone needed. The first test run downloads its Android runtime. Before a release, go through the car checklist in **[TESTING.md](TESTING.md)**.
+
+## Troubleshooting
+
+Logs: plug the phone in and run `adb logcat -s James`.
+
+| Problem | Try |
+| --- | --- |
+| Nothing happens when the car connects | Setup → check every row is green. Re-pick the car in **Your car**. Turn on Autostart (Xiaomi, Tecno, Infinix, itel, Oppo, Samsung). |
+| Music plays from the phone, not the car | It shouldn't any more (Azarah waits for the car's music channel). If it does, send the log. |
+| A playlist folder is missing | It must be directly inside `Music`. Empty folders show as "No songs". |
+| "Hey Azarah" doesn't answer | Say "Hey Azarah" or "Azarah, play the music" clearly (a-ZAH-rah). Setup → Wake word must say Ready, and the bubble's dot must be green. If the phone was locked when the car connected, unlock it once. Mount the phone facing you. |
+| Azarah wakes up by herself | Run `adb logcat -s James` and look for "Wake listener heard: …" lines: they show what was heard and each word's confidence. Raise `WakePhrase.MIN_CONFIDENCE` (0.6) or add the misheard word to its decoy list. |
+| No parking notification | Setup → Where did I park? must say On; location must be **Allow all the time**. |
+
+## How it's built
+
+| Part | Uses |
+| --- | --- |
+| Car trigger | `CompanionDeviceManager` (Android 12+) and a Bluetooth broadcast receiver (all versions) |
+| Background | One foreground service, `JamesService` |
+| Music | Media3 ExoPlayer + MediaSession (steering-wheel buttons) |
+| Overlay | `WindowManager` overlay windows drawn with plain Android views |
+| "Hey Azarah" | Vosk (offline speech recognition, Apache 2.0), limited to a short phrase list in `WakePhrase.kt` |
+| Commands and addresses | Android `SpeechRecognizer`, then `Commands.kt` |
+| Azarah's voice | Android `TextToSpeech` |
+| Navigation | Google Maps `google.navigation:` intent, with fallbacks |
+| Parking | Android `LocationManager` |
+
+### Source files (`app/src/main/java/com/james/assistant/`)
+
+| File | What it does |
+| --- | --- |
+| `JamesService.kt` | The service that runs while the car is connected: music, overlay, wake word, navigation, notification |
+| `SetupActivity.kt` | The setup screen |
+| `overlay/OverlayController.kt` | The bubble and the sheet (Home, Music and Map pages, voice flows) |
+| `overlay/Views.kt` | Waveform, progress bar and sheet gestures |
+| `Commands.kt` | What each spoken command means; playlist and place matching (unit-tested) |
+| `WakeWord.kt` / `WakePhrase.kt` / `VoiceModel.kt` | "Hey Azarah" listener, what counts as the wake word, and the model download |
+| `VoiceInput.kt` / `Speaker.kt` | Speech-to-text for commands; Azarah's spoken replies |
+| `MusicLibrary.kt` | Finds playlists and songs |
+| `Places.kt` / `Place.kt` | Saved places |
+| `Parking.kt` | Where did I park? |
+| `CarConnection.kt`, `CarPresenceService.kt`, `BluetoothCarReceiver.kt` | Car connect / disconnect |
+| `Prefs.kt`, `Ui.kt` | Saved settings; colours and shared UI pieces |
+
+## Changelog
+
+- **0.8** (not yet built): The app is now called **Azarah**, with an "A" icon and bubble and a female voice where the phone has one; the default music folder is `Azarah_Default` (an existing `James_Default` still works). Wake word is "Azarah" ("Hey / Hello / Hi / Okay Azarah"), and a command can follow in one breath ("Azarah, play the music"). Fewer false wakes: only finished utterances count, each word needs good confidence, and sound-alike decoy words absorb near-misses. "Sorry, I didn't catch that" listens again instead of going back to sleep. Fixes the Go countdown freezing on misheard words, duplicate place names on rename, and a lost speech callback during start-up.
+- **0.7.1**: Cancels stale music and voice requests across disconnect, Pause and trip cancellation; handles repeated controller Pause and buffering; preserves destination/playlist names and matches punctuated saved places; fixes parking cancellation and calendar labels; guards revoked Bluetooth permission; defers wake reload during commands and cleans up native listeners; supports accessibility clicks on the bubble. Adds Android lifecycle regression tests.
+- **0.7**: Unit tests and the car checklist; voice-command logic moved into `Commands.kt`; short words no longer match playlists by accident.
+- **0.6.2**: Autoplay waits for the car's music channel; wake word no longer restarts during a command; music library read in the background; no stale parking notifications; parking notification works without Google Maps.
+- **0.6.1**: "Hey Azarah" gets the microphone as soon as Azarah is on screen.
+- **0.6**: Saved places (add, edit, remove, any name); Where did I park?
+- **0.5**: "Hey Azarah" with Vosk and voice commands; all Music folders shown, including unindexed songs.
+- **0.4**: Maps by voice with Go countdown and quick picks.
+- **0.3**: Bubble and sheet overlay, now-playing card, playlist list, spoken feedback.
+- **0.2**: Music from `James_Default` on connect, resume where it stopped, car and earbud buttons.
+- **0.1**: Starts and stops with the car's Bluetooth.

@@ -4,9 +4,6 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** A saved place, e.g. ("Church", "Daystar Christian Centre, Oregun"). */
-data class Place(val name: String, val address: String)
-
 /**
  * The driver's saved places: as many as they like, any names.
  * Saying "take me to <name>" (or tapping it in Quick picks) goes to its address.
@@ -60,18 +57,10 @@ object Places {
      * Finds a saved place from what was said: "church", "my church", "the office".
      * "work" also finds a place called "Office" and the other way round; "house" finds "Home".
      */
-    fun find(ctx: Context, spoken: String): Place? {
-        val t = spoken.lowercase().trim().removePrefix("my ").removePrefix("the ").trim()
-        if (t.isEmpty()) return null
-        val list = all(ctx)
-        list.firstOrNull { it.name.lowercase() == t }?.let { return it }
-        val synonyms = mapOf(
-            "house" to "home", "home" to "house",
-            "work" to "office", "office" to "work"
-        )
-        synonyms[t]?.let { alt -> list.firstOrNull { it.name.lowercase() == alt }?.let { return it } }
-        return null
-    }
+    fun find(ctx: Context, spoken: String): Place? = match(spoken, all(ctx))
+
+    /** The lookup behind [find], without storage (unit-tested via Commands.matchPlace). */
+    fun match(spoken: String, places: List<Place>): Place? = Commands.matchPlace(spoken, places)
 
     /** Before this version, only Home and Office existed: carry them over once. */
     private fun migrateOldHomeOffice(ctx: Context): List<Place> {

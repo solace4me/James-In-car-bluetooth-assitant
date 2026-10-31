@@ -37,6 +37,7 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var active = false
+    private var generation = 0L
 
     // Exclusive short focus: the music pauses while James listens, then resumes by itself.
     private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
@@ -61,9 +62,9 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
         ContextCompat.checkSelfPermission(app, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     fun start() {
+        cancel()
         if (!hasPermission()) { callback.onError("no-permission"); return }
         if (!SpeechRecognizer.isRecognitionAvailable(app)) { callback.onError("unavailable"); return }
-        cancel()
 
         val r = try {
             SpeechRecognizer.createSpeechRecognizer(app)
@@ -73,7 +74,7 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
             return
         }
         recognizer = r
-        r.setRecognitionListener(listener)
+        r.setRecognitionListener(listener(++generation))
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -100,11 +101,11 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
     /** Stops listening without reporting anything. */
     fun cancel() {
         if (recognizer == null && !active) return
-        try { recognizer?.cancel() } catch (_: Exception) {}
         finish()
     }
 
     private fun finish() {
+        generation++
         active = false
         main.removeCallbacks(timeout)
         try { recognizer?.destroy() } catch (_: Exception) {}
@@ -112,8 +113,9 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
         audio.abandonAudioFocusRequest(focus)
     }
 
-    private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { if (active) callback.onListening() }
+    private fun listener(token: Long) = object : RecognitionListener {
+        private fun isCurrent() = active && token == generation
+        override fun onReadyForSpeech(params: Bundle?) { if (isCurrent()) callback.onListening() }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
@@ -121,13 +123,13 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onPartialResults(partialResults: Bundle?) {
-            if (!active) return
+            if (!isCurrent()) return
             val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
             if (!text.isNullOrBlank()) callback.onPartial(text)
         }
 
         override fun onResults(results: Bundle?) {
-            if (!active) return
+            if (!isCurrent()) return
             val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.filter { it.isNotBlank() }.orEmpty()
             finish()
@@ -135,7 +137,7 @@ class VoiceInput(ctx: Context, private val callback: Callback) {
         }
 
         override fun onError(error: Int) {
-            if (!active) return
+            if (!isCurrent()) return
             Log.w(JamesService.TAG, "Speech error $error")
             finish()
             callback.onError(

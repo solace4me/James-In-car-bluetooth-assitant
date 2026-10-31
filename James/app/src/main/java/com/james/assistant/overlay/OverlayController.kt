@@ -36,11 +36,14 @@ import android.widget.TextView
 import com.james.assistant.JamesService
 import com.james.assistant.MusicFolder
 import com.james.assistant.MusicLibrary
+import com.james.assistant.Command
+import com.james.assistant.Commands
 import com.james.assistant.Places
 import com.james.assistant.Prefs
 import com.james.assistant.R
 import com.james.assistant.VoiceInput
 import com.james.assistant.Ui
+import com.james.assistant.WakePhrase
 import java.util.concurrent.Executors
 import kotlin.math.hypot
 import kotlin.math.min
@@ -85,6 +88,8 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         fun listeningStarted()
         /** True while James needs the mic for speech recognition (the wake word steps aside). */
         fun micBusy(busy: Boolean)
+        /** James's window is on screen: Android now allows the microphone. */
+        fun uiVisible()
         fun play()
         fun pause()
     }
@@ -143,7 +148,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
     private var currentPage = Page.HOME
     private var wakeListening = false
 
-    /** Green dot on the bubble = "Hey James" is listening. */
+    /** Green dot on the bubble = the wake word ("Hey Azarah") is listening. */
     fun setWakeListening(on: Boolean) {
         if (wakeListening == on) return
         wakeListening = on
@@ -218,6 +223,12 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         }
         scheduleAutoCollapse()
         ensureVisible()   // also starts the watchdog
+        notifyVisibleSoon()
+    }
+
+    /** Once the window has actually been drawn, tell the service (it unlocks the mic). */
+    private fun notifyVisibleSoon() {
+        main.postDelayed({ if (!released) actions.uiVisible() }, 800)
     }
 
     /** Closes the Full Overlay and shows the bubble. */
@@ -253,6 +264,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             wm.addView(view, lp)
             bubble = view
             Log.i(JamesService.TAG, "Bubble shown")
+            notifyVisibleSoon()
         } catch (e: Exception) {
             Log.e(JamesService.TAG, "Couldn't show bubble: ${e.message}")
         }
@@ -275,9 +287,13 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
     }
 
     private fun buildBubble(): View {
-        val root = FrameLayout(ctx).apply { setPadding(dp(6), dp(6), dp(6), dp(6)) }
+        val root = FrameLayout(ctx).apply {
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            contentDescription = "Open Azarah"
+            setOnClickListener { expand(Page.HOME) }
+        }
         val circle = TextView(ctx).apply {
-            text = "J"
+            text = "A"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
             typeface = Typeface.DEFAULT_BOLD
@@ -288,7 +304,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
                 setStroke(dp(2), 0x40FFFFFF)
             }
             elevation = dp(6).toFloat()
-            contentDescription = "James. Tap to open."
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         root.addView(circle, FrameLayout.LayoutParams(dp(64), dp(64)))
 
@@ -343,7 +359,6 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
                         safeUpdate(v, lp)
                     } else {
                         v.performClick()
-                        expand(Page.HOME)
                     }
                 }
             }
@@ -438,7 +453,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
     // ---------- Page: Home ----------
 
-    /** "James is listening…" strip at the top of Home, shown after the wake word. */
+    /** "Azarah is listening…" strip at the top of Home, shown after the wake word. */
     private class HomeListenViews(val strip: View, val wave: WaveformView, val partial: TextView)
     private var homeListen: HomeListenViews? = null
 
@@ -450,7 +465,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             visibility = View.GONE
             setPadding(0, 0, 0, dp(12))
         }
-        strip.addView(Ui.text(ctx, "James is listening…", 26f, bold = true).apply { gravity = Gravity.CENTER })
+        strip.addView(Ui.text(ctx, "Azarah is listening…", 26f, bold = true).apply { gravity = Gravity.CENTER })
         val listenWave = WaveformView(ctx).apply { active = true }
         strip.addView(listenWave, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply {
             topMargin = dp(8)
@@ -465,10 +480,10 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         col.addView(strip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         homeListen = HomeListenViews(strip, listenWave, partial)
 
-        // Header: J avatar, "James", status line, close button.
+        // Header: A avatar, "Azarah", status line, close button.
         val header = Ui.row(ctx)
         header.addView(TextView(ctx).apply {
-            text = "J"
+            text = "A"
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             typeface = Ui.BOLD
@@ -476,7 +491,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             background = Ui.oval(ctx, 0xFF1E1E22.toInt(), Ui.GREEN, 2)
         }, LinearLayout.LayoutParams(dp(44), dp(44)))
         val names = Ui.column(ctx).apply { setPadding(dp(12), 0, dp(8), 0) }
-        names.addView(Ui.text(ctx, "James", 20f, bold = true))
+        names.addView(Ui.text(ctx, "Azarah", 20f, bold = true))
         val status = Ui.text(ctx, actions.statusLine(), 15f, Ui.TEXT_2, oneLine = true).apply {
             setPadding(0, dp(4), 0, 0)
         }
@@ -877,7 +892,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         wave.animating = false
 
         if (initialDestination != null) {
-            // "Hey James, take me to …": skip the question and go straight to the confirmation.
+            // "Take me to …": skip the question and go straight to the confirmation.
             main.post { useDestination(initialDestination) }
         } else {
             // Ask, then listen once James has finished talking (so he doesn't hear himself).
@@ -923,6 +938,9 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
     /** Says [prompt] (if any), then listens for a destination. */
     private fun listen(prompt: String?) {
         val m = map ?: return
+        val token = ++commandToken
+        voice?.cancel()
+        voiceMode = VoiceMode.NONE
         stopCountdown()
         pendingAddress = null
         m.goRow.visibility = View.GONE
@@ -932,14 +950,15 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
         val v = voice ?: VoiceInput(ctx, voiceCallback).also { voice = it }
         if (!v.hasPermission()) {
+            holdMic(false)
             m.label.text = "Microphone not allowed"
-            m.heard.text = "Allow it in James setup, or pick a place below."
+            m.heard.text = "Allow it in Azarah setup, or pick a place below."
             return
         }
         voiceMode = VoiceMode.MAP
         holdMic(true)   // wake word steps aside, also while James asks (he mustn't hear himself)
         val begin = {
-            if (map === m && voiceMode == VoiceMode.MAP) {
+            if (token == commandToken && map === m && voiceMode == VoiceMode.MAP) {
                 m.label.text = "Listening…"
                 m.wave.active = true
                 m.wave.animating = true
@@ -974,6 +993,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
         override fun onResult(alternatives: List<String>) {
             val mode = voiceMode
+            if (mode == VoiceMode.NONE) return
             voiceMode = VoiceMode.NONE
             holdMic(false)
             if (mode == VoiceMode.COMMAND) {
@@ -988,6 +1008,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
         override fun onError(reason: String) {
             val mode = voiceMode
+            if (mode == VoiceMode.NONE) return
             voiceMode = VoiceMode.NONE
             holdMic(false)
             if (mode == VoiceMode.COMMAND) {
@@ -1010,7 +1031,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
                 }
                 "no-permission" -> {
                     m.label.text = "Microphone not allowed"
-                    m.heard.text = "Allow it in James setup."
+                    m.heard.text = "Allow it in Azarah setup."
                 }
                 "network" -> {
                     m.label.text = "No internet for voice"
@@ -1037,9 +1058,9 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             confirm(resolved.first, spokenName = resolved.second)
         } else {
             m.label.text = "Not saved yet"
-            m.heard.text = "Add it under Places in James setup."
+            m.heard.text = "Add it under Places in Azarah setup."
             m.retry.visibility = View.VISIBLE
-            actions.say("You haven't saved that place yet. You can add it in James setup.")
+            actions.say("You haven't saved that place yet. You can add it in Azarah setup.")
         }
     }
 
@@ -1049,17 +1070,11 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
      * null if they asked for a saved place that isn't set.
      */
     private fun resolvePlace(said: String): Pair<String, String>? {
-        var t = said.trim().trimEnd('.', '!', '?')
-        val prefixes = listOf(
-            "take me to ", "navigate to ", "directions to ", "drive to ", "go to ", "let's go to ",
-            "we are going to ", "we're going to ", "i'm going to ", "to "
-        )
-        prefixes.firstOrNull { t.lowercase().startsWith(it) }?.let { t = t.substring(it.length).trim() }
+        val t = Commands.stripDestination(said)
         // A saved place ("church", "my office", "home")?
         Places.find(ctx, t)?.let { return it.address to it.name }
         // They asked for Home or Office but haven't saved it: say so instead of searching the map.
-        val bare = t.lowercase().removePrefix("my ").removePrefix("the ").removePrefix("go ").trim()
-        if (bare in setOf("home", "house", "office", "work")) return null
+        if (Commands.isHomeOrOfficeWord(t)) return null
         return t to t
     }
 
@@ -1079,8 +1094,9 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         m.goRow.visibility = View.VISIBLE
         m.goText.text = "Go"
         scheduleAutoCollapse()
+        val token = ++commandToken
         actions.say("Going to $spokenName") {
-            if (map === m && pendingAddress == address) {
+            if (token == commandToken && voiceMode == VoiceMode.NONE && map === m && pendingAddress == address) {
                 countdown = 3
                 main.post(countdownTick)
             }
@@ -1097,6 +1113,11 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
 
     private fun cancelTrip() {
         val m = map ?: return
+        commandToken++
+        commandHeld = null
+        voiceMode = VoiceMode.NONE
+        voice?.cancel()
+        holdMic(false)
         stopCountdown()
         pendingAddress = null
         m.goRow.visibility = View.GONE
@@ -1116,29 +1137,48 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         voice?.cancel()
         voiceMode = VoiceMode.NONE
         commandToken++
+        commandHeld = null
         holdMic(false)
         pendingAddress = null
         map = null
     }
 
-    // ---------- Voice commands (after "Hey James") ----------
+    // ---------- Voice commands (after the wake word, "Hey Azarah") ----------
 
     private var commandToken = 0
+    private var folderToken = 0L
     private var commandHeld: String? = null   // address whose countdown was paused by the wake word
+    /** "Sorry, say that again" re-listens without the wake word, up to [MAX_COMMAND_RETRIES] times. */
+    private var commandRetries = 0
 
-    /** Called by the service when the wake word is heard. */
-    fun voiceCommand() {
+    /** Called by the service when Pause/disconnect supersedes a pending spoken playlist lookup. */
+    fun cancelPendingMusic() { folderToken++ }
+
+    /**
+     * Called by the service when the wake word is heard. [spoken]: a command said in the same
+     * breath ("Azarah, play the music"), done straight away; null = ask, then listen.
+     */
+    fun voiceCommand(spoken: String? = null) {
         if (released || !canDraw()) return
         val held = if (isExpanded && currentPage == Page.MAP) pendingAddress else null
         if (held != null) {
             // Mid-countdown on the Map page: listen right here for "go" or "cancel".
             stopCountdown()
             commandHeld = held
+            if (spoken != null) {
+                onCommandHeard(spoken)
+                return
+            }
             map?.label?.text = "Listening… say Go or Cancel"
             startCommandListening(prompt = "Yes?")
             return
         }
         commandHeld = null
+        commandRetries = 0
+        if (spoken != null) {
+            onCommandHeard(spoken)
+            return
+        }
         if (!isExpanded || currentPage != Page.HOME) expand(Page.HOME) else scheduleAutoCollapse()
         showHomeListening(true)
         startCommandListening(prompt = "Speak on, I'm listening")
@@ -1149,7 +1189,7 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         val v = voice ?: VoiceInput(ctx, voiceCallback).also { voice = it }
         if (!v.hasPermission()) {
             showHomeListening(false)
-            actions.say("I need the microphone. Please allow it in James setup.")
+            actions.say("I need the microphone. Please allow it in Azarah setup.")
             return
         }
         voiceMode = VoiceMode.COMMAND
@@ -1177,59 +1217,92 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
         commandHeld = null
         if (held != null && map != null) {
             // Nothing heard: carry on with the paused trip.
-            pendingAddress = held
-            map?.label?.text = "Heard:"
-            countdown = 3
-            main.post(countdownTick)
+            resumeHeldTrip(held)
             return
         }
         when (reason) {
-            "no-match" -> actions.say("Sorry, I didn't catch that")
+            "no-match" -> retryCommand(
+                "Sorry, I didn't catch that. Say it again.",
+                giveUp = "Sorry, I still didn't catch that. Say ${WakePhrase.PHRASE} to try again."
+            )
             "network" -> actions.say("I need internet to understand you")
-            "no-permission" -> actions.say("I need the microphone. Please allow it in James setup.")
+            "no-permission" -> actions.say("I need the microphone. Please allow it in Azarah setup.")
             else -> actions.say("Sorry, something went wrong")
         }
     }
 
-    /** Works out what the driver wants and does it. */
+    /**
+     * James didn't understand: says [prompt], then listens again straight away, so the driver
+     * just repeats themselves instead of saying the wake word again. After
+     * [MAX_COMMAND_RETRIES] tries he says [giveUp] and goes back to waiting for the wake word.
+     */
+    private fun retryCommand(prompt: String, giveUp: String) {
+        if (released) return
+        if (commandRetries >= MAX_COMMAND_RETRIES) {
+            commandRetries = 0
+            actions.say(giveUp)
+            return
+        }
+        commandRetries++
+        if (!isExpanded) expand(Page.HOME) else if (currentPage != Page.HOME) showPage(Page.HOME)
+        showHomeListening(true)
+        startCommandListening(prompt)
+    }
+
+    /** Shows [page], opening the sheet first if only the bubble is on screen. */
+    private fun openPage(page: Page, mapDestination: String? = null) {
+        if (!isExpanded || sheet == null) expand(Page.HOME)
+        if (isExpanded) showPage(page, mapDestination)
+    }
+
+    /** The wake word paused the Go countdown and nothing usable was said: restart it. */
+    private fun resumeHeldTrip(address: String) {
+        pendingAddress = address
+        map?.label?.text = "Heard:"
+        stopCountdown()
+        countdown = 3
+        main.post(countdownTick)
+    }
+
+    /** Works out what the driver wants (see Commands.parse) and does it. */
     private fun onCommandHeard(said: String) {
         showHomeListening(false)
         val held = commandHeld
         commandHeld = null
-        val t = normalize(said)
-        Log.i(JamesService.TAG, "Command: \"$said\" -> \"$t\"")
+        val command = Commands.parse(said, duringCountdown = held != null, savedPlaces = Places.all(ctx))
+        Log.i(JamesService.TAG, "Command: \"$said\" -> $command")
 
-        // During a trip countdown: go / cancel.
-        if (held != null) {
-            when (t) {
-                in GO_WORDS -> { go(held); return }
-                in CANCEL_WORDS -> { cancelTrip(); return }
-            }
-        }
-
-        val destination = DESTINATION_PREFIXES.firstOrNull { t.startsWith(it) }
-            ?.let { t.removePrefix(it).trim() }?.takeIf { it.isNotEmpty() }
-        when {
-            destination != null -> showPage(Page.MAP, destination)
-            t in HOME_WORDS -> showPage(Page.MAP, "home")
-            Places.find(ctx, t) != null -> showPage(Page.MAP, t)
-            t in MAP_WORDS -> showPage(Page.MAP)
-            t in MUSIC_WORDS -> showPage(Page.MUSIC)
-            t.contains("shuffle") -> { actions.shuffleAll(); collapse() }
-            t in PLAY_WORDS -> { actions.play(); collapse() }
-            t in PAUSE_WORDS -> { actions.pause(); collapse() }
-            t in NEXT_WORDS -> { actions.next(); collapse() }
-            t in PREV_WORDS -> { actions.previous(); collapse() }
-            t.startsWith("play ") -> playByName(t.removePrefix("play ").trim())
-            t in CLOSE_WORDS -> collapse()
-            else -> {
+        when (command) {
+            Command.Go -> held?.let { go(it) }
+            Command.Cancel -> cancelTrip()
+            is Command.Navigate -> openPage(Page.MAP, command.destination)
+            Command.OpenMap -> openPage(Page.MAP)
+            Command.OpenMusic -> openPage(Page.MUSIC)
+            Command.Shuffle -> { actions.shuffleAll(); collapse() }
+            Command.Play -> { actions.play(); collapse() }
+            Command.Pause -> { actions.pause(); collapse() }
+            Command.Next -> { actions.next(); collapse() }
+            Command.Previous -> { actions.previous(); collapse() }
+            is Command.PlayNamed -> playByName(command.name)
+            Command.Close -> collapse()
+            is Command.Unknown -> {
+                if (held != null && map != null) {
+                    // Mid-countdown, words that aren't Go / Cancel / a command: keep the trip going
+                    // instead of leaving it frozen (or swapping it for a similar-sounding playlist).
+                    resumeHeldTrip(held)
+                    return
+                }
                 // A bare playlist name ("gospel") also works.
-                val folder = bestFolder(t)
-                if (folder != null) {
-                    actions.playFolder(folder)
-                    collapse()
-                } else {
-                    actions.say("Sorry, I didn't get that. Say music, map, or a playlist name.")
+                findFolderAsync(command.text) { folder ->
+                    if (folder != null) {
+                        actions.playFolder(folder)
+                        collapse()
+                    } else {
+                        retryCommand(
+                            "Sorry, I didn't get that. Say music, map, or a playlist name.",
+                            giveUp = "Sorry, I still didn't get that. Say ${WakePhrase.PHRASE} to try again."
+                        )
+                    }
                 }
             }
         }
@@ -1241,27 +1314,36 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             collapse()
             return
         }
-        val folder = bestFolder(name)
-        if (folder != null) {
-            actions.playFolder(folder)   // the service says "Playing …"
-            collapse()
-        } else {
-            actions.say("I couldn't find a playlist called $name")
-            showPage(Page.MUSIC)
+        findFolderAsync(name) { folder ->
+            if (folder != null) {
+                actions.playFolder(folder)   // the service says "Playing …"
+                collapse()
+            } else {
+                actions.say("I couldn't find a playlist called $name")
+                if (isExpanded) showPage(Page.MUSIC) else expand(Page.MUSIC)
+            }
+        }
+    }
+
+    /** Matches a spoken playlist name in the background (reads the library), answers on the main thread. */
+    private fun findFolderAsync(spoken: String, then: (String?) -> Unit) {
+        if (io.isShutdown) return
+        val token = ++commandToken
+        val folderRequest = ++folderToken
+        try {
+            io.execute {
+                val folder = try { bestFolder(spoken) } catch (e: Exception) { null }
+                main.post { if (!released && token == commandToken && folderRequest == folderToken) then(folder) }
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // James is shutting down
         }
     }
 
     /** Matches a spoken name to a folder: exact, then contains, then a near spelling. */
     private fun bestFolder(spoken: String): String? {
         if (spoken.isBlank()) return null
-        val folders = MusicLibrary.folders(ctx)
-        val key = normalize(spoken)
-        val named = folders.map { it.name to normalize(it.name.replace('_', ' ')) }
-        named.firstOrNull { it.second == key }?.let { return it.first }
-        named.firstOrNull { it.second.contains(key) || (key.length >= 4 && key.contains(it.second)) }?.let { return it.first }
-        return named.map { it.first to editDistance(it.second, key) }
-            .filter { (_, d) -> d <= maxOf(1, key.length / 4) }
-            .minByOrNull { it.second }?.first
+        return Commands.matchFolder(spoken, MusicLibrary.folders(ctx).map { it.name })
     }
 
 
@@ -1388,7 +1470,8 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
     companion object {
         private const val ART_DEFAULT = "default"
         private const val ART_SONG = "song"
-        private const val AUTO_COLLAPSE_MS = 20_000L   // close by itself if untouched while driving
+        private const val AUTO_COLLAPSE_MS = 20_000L
+        private const val MAX_COMMAND_RETRIES = 2   // close by itself if untouched while driving
         private const val GREEN = 0xFF2BD47D.toInt()
         private const val DOT_IDLE = 0xFF8A8A8E.toInt()
         private const val TILE = 0xFF2C2C30.toInt()
@@ -1399,44 +1482,9 @@ class OverlayController(serviceCtx: Context, private val actions: Actions) {
             0xFF2BD47D.toInt(), 0xFFF06BA8.toInt(), 0xFF3CC8C8.toInt()
         )
 
-        /** "James_Default" -> "James Default", for speech and screen readers. */
+        /** "Azarah_Default" -> "Azarah Default", for speech and screen readers. */
         fun spoken(folder: String) = folder.replace('_', ' ')
 
-        /** Lower case, no punctuation, no "hey James" / "please". */
-        fun normalize(s: String): String =
-            s.lowercase()
-                .replace(Regex("[^a-z0-9' ]"), " ")
-                .replace(Regex("\\b(hey|okay|ok) james\\b|\\bjames\\b|\\bplease\\b"), " ")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-
-        fun editDistance(a: String, b: String): Int {
-            val dp = IntArray(b.length + 1) { it }
-            for (i in 1..a.length) {
-                var prev = dp[0]
-                dp[0] = i
-                for (j in 1..b.length) {
-                    val tmp = dp[j]
-                    dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + if (a[i - 1] == b[j - 1]) 0 else 1)
-                    prev = tmp
-                }
-            }
-            return dp[b.length]
-        }
-
-        private val GO_WORDS = setOf("go", "go now", "yes", "start", "let's go", "lets go", "ok go", "okay go", "drive", "go go")
-        private val CANCEL_WORDS = setOf("cancel", "stop", "no", "don't", "dont", "never mind", "nevermind", "wait")
-        private val CLOSE_WORDS = setOf("close", "hide", "nothing", "never mind", "nevermind", "cancel", "goodbye", "bye", "that's all", "thats all", "no")
-        private val MAP_WORDS = setOf("map", "maps", "navigation", "navigate", "directions", "where to", "open map", "open maps", "trip", "start a trip")
-        private val MUSIC_WORDS = setOf("music", "playlist", "playlists", "songs", "my music", "open music", "choose music", "change music", "change playlist")
-        private val PLAY_WORDS = setOf("play", "resume", "continue", "play music", "start music", "play the music", "resume music")
-        private val PAUSE_WORDS = setOf("pause", "stop", "stop music", "pause music", "stop the music", "quiet", "silence")
-        private val NEXT_WORDS = setOf("next", "next song", "skip", "skip song", "skip this", "next track", "change song", "change the song")
-        private val PREV_WORDS = setOf("previous", "previous song", "back", "go back", "last song", "previous track")
-        private val HOME_WORDS = setOf("home", "go home", "my house")
-        private val DESTINATION_PREFIXES = listOf(
-            "take me to ", "navigate to ", "directions to ", "drive to ", "go to ", "let's go to ", "lets go to ",
-            "we are going to ", "we're going to ", "i'm going to ", "im going to ", "take me "
-        )
+        // Command words and matching live in Commands.kt (unit-tested).
     }
 }

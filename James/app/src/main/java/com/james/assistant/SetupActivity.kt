@@ -71,9 +71,9 @@ class SetupActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
                 Parking.setEnabled(this, true)
-                toast("James will remember where you park")
+                toast("Azarah will remember where you park")
             } else {
-                toast("Choose \"Allow all the time\" so James can save the spot after you leave the car")
+                toast("Choose \"Allow all the time\" so Azarah can save the spot after you leave the car")
             }
             refresh()
         }
@@ -112,6 +112,8 @@ class SetupActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // James is on screen: lets a running James unlock the microphone for the wake word.
+        if (JamesService.isRunning) JamesService.send(this, JamesService.ACTION_UI_VISIBLE, "setup opened")
         uiHandler.post(ticker)
     }
 
@@ -129,7 +131,7 @@ class SetupActivity : ComponentActivity() {
         // Header
         val header = Ui.row(this)
         header.addView(TextView(this).apply {
-            text = "J"
+            text = "A"
             setTextColor(Color.WHITE)
             textSize = 24f
             typeface = Ui.BOLD
@@ -137,7 +139,7 @@ class SetupActivity : ComponentActivity() {
             background = Ui.oval(this@SetupActivity, 0xFF1E1E22.toInt(), Ui.GREEN, 2)
         }, LinearLayout.LayoutParams(dp(52), dp(52)))
         val names = Ui.column(this).apply { setPadding(dp(14), 0, 0, 0) }
-        names.addView(Ui.text(this, "James", 28f, bold = true))
+        names.addView(Ui.text(this, "Azarah", 28f, bold = true))
         names.addView(Ui.text(this, "Your in-car assistant", 16f, Ui.TEXT_2).apply { setPadding(0, dp(4), 0, 0) })
         header.addView(names)
         col.addView(header, matchWrap(bottom = 24))
@@ -158,7 +160,7 @@ class SetupActivity : ComponentActivity() {
         col.addView(list, matchWrap(bottom = 32))
 
         // Wake word
-        col.addView(Ui.label(this, "Wake word · \"Hey James\""), matchWrap(bottom = 12))
+        col.addView(Ui.label(this, "Wake word · \"${WakePhrase.PHRASE}\""), matchWrap(bottom = 12))
         val wakeCard = Ui.column(this).apply { background = Ui.card(this@SetupActivity, 20) }
         keyRow = placeRow(R.drawable.ic_mic, "Voice model (${VoiceModel.SIZE_MB} MB, once)") { downloadModel() }
         wakeCard.addView(keyRow)
@@ -212,7 +214,7 @@ class SetupActivity : ComponentActivity() {
         music.addView(musicDefault)
         music.addView(musicPlaylists)
         col.addView(music, matchWrap(bottom = 16))
-        col.addView(Ui.text(this, "Songs go in Music/James_Default on your phone. Each other folder in Music becomes a playlist.",
+        col.addView(Ui.text(this, "Songs go in Music/${MusicLibrary.DEFAULT_FOLDER} on your phone (an older James_Default folder works too). Each other folder in Music becomes a playlist.",
             15f, Ui.TEXT_3).apply { setLineSpacing(0f, 1.25f) }, matchWrap())
 
         // Android 15+ draws apps behind the status and navigation bars; pad around them.
@@ -236,7 +238,7 @@ class SetupActivity : ComponentActivity() {
         val top = Ui.row(this)
         statusDot = View(this).apply { background = Ui.oval(this@SetupActivity, Ui.GREY_DOT) }
         top.addView(statusDot, LinearLayout.LayoutParams(dp(12), dp(12)))
-        statusTitle = Ui.text(this, "James is off", 22f, bold = true).apply { setPadding(dp(12), 0, 0, 0) }
+        statusTitle = Ui.text(this, "Azarah is off", 22f, bold = true).apply { setPadding(dp(12), 0, 0, 0) }
         top.addView(statusTitle)
         card.addView(top)
 
@@ -246,12 +248,12 @@ class SetupActivity : ComponentActivity() {
         card.addView(statusSong)
 
         val buttons = Ui.row(this)
-        buttons.addView(pillButton("Start James", filled = true) {
+        buttons.addView(pillButton("Start Azarah", filled = true) {
             CarConnection.check(this) { connected ->
                 if (connected) {
                     JamesService.send(this, JamesService.ACTION_CONNECTED, "start button")
                 } else {
-                    toast("Your car isn't connected, so James won't start. Turn its Bluetooth on first.")
+                    toast("Your car isn't connected, so Azarah won't start. Turn its Bluetooth on first.")
                 }
             }
         }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(6) })
@@ -319,7 +321,7 @@ class SetupActivity : ComponentActivity() {
             else -> {
                 val on = !Parking.isEnabled(this)
                 Parking.setEnabled(this, on)
-                toast(if (on) "James will remember where you park" else "Parking spot off")
+                toast(if (on) "Azarah will remember where you park" else "Parking spot off")
                 refresh()
             }
         }
@@ -329,8 +331,8 @@ class SetupActivity : ComponentActivity() {
     private fun askBackgroundLocation() {
         android.app.AlertDialog.Builder(this)
             .setTitle("Allow location all the time?")
-            .setMessage("James saves where you parked right after the car disconnects, when the app isn't open. " +
-                "On the next screen, choose \"Allow all the time\". James only checks your location once per trip, when you park.")
+            .setMessage("Azarah saves where you parked right after the car disconnects, when the app isn't open. " +
+                "On the next screen, choose \"Allow all the time\". Azarah only checks your location once per trip, when you park.")
             .setPositiveButton("Continue") { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
@@ -340,10 +342,10 @@ class SetupActivity : ComponentActivity() {
     private lateinit var keyRow: View
     private lateinit var wakeInfo: TextView
 
-    /** Downloads the offline voice model "Hey James" needs (once, ~40 MB). */
+    /** Downloads the offline voice model the wake word needs (once, ~40 MB). */
     private fun downloadModel() {
         if (VoiceModel.isReady(this)) {
-            toast("Voice model is ready. Say \"Hey James\" while driving.")
+            toast("Voice model is ready. Say \"${WakePhrase.PHRASE}\" while driving.")
             return
         }
         if (VoiceModel.downloading) {
@@ -352,14 +354,14 @@ class SetupActivity : ComponentActivity() {
         }
         android.app.AlertDialog.Builder(this)
             .setTitle("Download voice model?")
-            .setMessage("\"Hey James\" listens on your phone, without the internet, using a free English voice model. " +
+            .setMessage("\"${WakePhrase.PHRASE}\" listens on your phone, without the internet, using a free English voice model. " +
                 "It's about ${VoiceModel.SIZE_MB} MB, downloaded once. Wi-Fi recommended.")
             .setPositiveButton("Download") { _, _ ->
                 val app = applicationContext
                 VoiceModel.download(app) { ok ->
                     runOnUiThread {
                         if (ok) {
-                            toast("Voice model ready. Say \"Hey James\"!")
+                            toast("Voice model ready. Say \"${WakePhrase.PHRASE}\"!")
                             JamesService.send(app, JamesService.ACTION_WAKE_RELOAD, "voice model ready")
                         } else {
                             toast("Download failed: ${VoiceModel.lastError}. Check the internet and try again.")
@@ -487,7 +489,7 @@ class SetupActivity : ComponentActivity() {
         }
         val dialog = android.app.AlertDialog.Builder(this)
             .setTitle(if (existing == null) "Add a place" else "Edit ${existing.name}")
-            .setMessage("Then say \"Hey James, take me to <name>\", or tap it in Quick picks.")
+            .setMessage("Then say \"${WakePhrase.PHRASE}\", then \"take me to <name>\", or tap it in Quick picks.")
             .setView(box)
             .setPositiveButton("Save", null)   // set below, so a blank field doesn't close the dialog
             .setNegativeButton("Cancel", null)
@@ -499,7 +501,9 @@ class SetupActivity : ComponentActivity() {
                 when {
                     n.isEmpty() -> name.error = "Give it a name"
                     a.isEmpty() -> address.error = "Add the address"
-                    existing == null && Places.all(this).any { it.name.equals(n, ignoreCase = true) } ->
+                    Places.all(this).any {
+                        it.name.equals(n, ignoreCase = true) && !it.name.equals(existing?.name, ignoreCase = true)
+                    } ->
                         name.error = "You already have a place called $n"
                     else -> {
                         Places.put(this, Place(n, a), oldName = existing?.name)
@@ -565,7 +569,7 @@ class SetupActivity : ComponentActivity() {
         // Status card
         val running = JamesService.isRunning
         statusDot.background = Ui.oval(this, if (running) Ui.GREEN else Ui.GREY_DOT)
-        statusTitle.text = if (running) "James is running" else "James is off"
+        statusTitle.text = if (running) "Azarah is running" else "Azarah is off"
         val car = Prefs.carName(this)
         statusCar.text = when {
             car == null -> "No car chosen yet"
@@ -580,7 +584,7 @@ class SetupActivity : ComponentActivity() {
         setStep(0, permsOk, if (permsOk) "All allowed" else "Bluetooth, notifications, music and microphone")
         setStep(1, car != null, car?.let { "$it · tap to change" } ?: "Pick your car's Bluetooth")
         val bgOk = ignoresBatteryOptimisation()
-        setStep(2, bgOk, if (bgOk) "Allowed" else "Stop the phone from closing James")
+        setStep(2, bgOk, if (bgOk) "Allowed" else "Stop the phone from closing Azarah")
         val overlayOk = Settings.canDrawOverlays(this)
         setStep(3, overlayOk, if (overlayOk) "Allowed" else "Needed for the bubble and the Music / Map screen")
         // Just granted while James is running: show the overlay now, no need to reconnect the car.
@@ -599,9 +603,10 @@ class SetupActivity : ComponentActivity() {
         })
         val status = Prefs.wakeStatus(this)
         wakeInfo.text = when {
-            !ready -> "Download the voice model once, then say \"Hey James\" any time while driving. Free, no account, works offline."
+            !ready -> "Download the voice model once, then say \"${WakePhrase.PHRASE}\" any time while driving. " +
+                "You can also say it with a command: \"Azarah, play the music\". Free, no account, works offline."
             status != null -> status
-            else -> "Starts listening for \"Hey James\" the next time James starts."
+            else -> "Starts listening for \"${WakePhrase.PHRASE}\" the next time Azarah starts."
         }
 
 
@@ -634,6 +639,7 @@ class SetupActivity : ComponentActivity() {
     private fun buildMusicSummary(): Pair<String, String> {
         val folders = MusicLibrary.folders(this)
         val default = folders.firstOrNull { it.name.equals(MusicLibrary.DEFAULT_FOLDER, true) }
+            ?: folders.firstOrNull { MusicLibrary.isDefault(it.name) }
         val first = if (default != null) "${default.tracks.size} songs play on connect"
         else "No Music/${MusicLibrary.DEFAULT_FOLDER} folder yet"
         val others = folders.filter { it !== default }
@@ -742,7 +748,7 @@ class SetupActivity : ComponentActivity() {
             return
         }
         overlayWasOk = false   // so the overlay pops up when they come back with it allowed
-        toast("Turn on 'Allow display over other apps' for James")
+        toast("Turn on 'Allow display over other apps' for Azarah")
         try {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:$packageName"))
@@ -755,7 +761,7 @@ class SetupActivity : ComponentActivity() {
     // ---------- Step 3: background ----------
 
     private fun openBatterySettings() {
-        toast("Find James and choose 'Don't optimise' / 'Unrestricted'")
+        toast("Find Azarah and choose 'Don't optimise' / 'Unrestricted'")
         try {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         } catch (e: Exception) {

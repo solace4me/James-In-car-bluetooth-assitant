@@ -61,7 +61,7 @@ object Prefs {
         prefs(ctx).edit().putString("recent_places", list.joinToString("\n")).apply()
     }
 
-    // ---------- Wake word ("Hey James") ----------
+    // ---------- Wake word ("Hey Azarah") ----------
 
     fun picovoiceKey(ctx: Context): String? =
         prefs(ctx).getString("picovoice_key", null)?.trim()?.takeIf { it.isNotEmpty() }

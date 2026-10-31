@@ -9,7 +9,7 @@ import java.net.URL
 import java.util.zip.ZipInputStream
 
 /**
- * The offline English speech model that the "Hey James" listener (Vosk) needs.
+ * The offline English speech model that the "Hey Azarah" wake-word listener (Vosk) needs.
  * Downloaded once (~40 MB) instead of being built into the app, so the app stays small.
  * Stored in the app's private files; deleted if the app is uninstalled.
  */

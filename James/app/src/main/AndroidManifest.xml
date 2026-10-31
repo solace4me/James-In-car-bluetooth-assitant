@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <!-- Voice: hear "Where to?" answers (and "Hey James" in Milestone 5) -->
+    <!-- Voice: hear "Where to?" answers (and the "Hey Azarah" wake word) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Downloads the offline voice model once; listening itself stays on the phone -->
     <uses-permission android:name="android.permission.INTERNET" />

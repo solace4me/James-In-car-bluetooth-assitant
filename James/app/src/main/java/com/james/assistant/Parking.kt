@@ -18,6 +18,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.text.DateFormat
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Date
 import java.util.concurrent.Executors
 
@@ -43,7 +45,13 @@ object Parking {
     // ---------------- Settings and permission ----------------
 
     fun isEnabled(ctx: Context) = prefs(ctx).getBoolean("parking_enabled", true)
-    fun setEnabled(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("parking_enabled", on).apply()
+    fun setEnabled(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("parking_enabled", on).apply()
+        if (!on) {
+            cancelPending()
+            cancelNotification(ctx)
+        }
+    }
 
     fun hasForegroundPermission(ctx: Context) =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -78,6 +86,7 @@ object Parking {
     }
 
     fun clear(ctx: Context) {
+        cancelPending()
         prefs(ctx).edit().remove("park_lat").remove("park_lng").remove("park_acc").remove("park_time").apply()
         cancelNotification(ctx)
     }
@@ -87,6 +96,17 @@ object Parking {
     private val main = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var capturing = false
+    /** Bumped on every new capture and on reconnect: an older location answer is then ignored. */
+    @Volatile private var generation = 0
+    private var pendingCancel: CancellationSignal? = null
+
+    /** The car reconnected (e.g. a Bluetooth glitch): drop any location request still running. */
+    fun cancelPending() {
+        generation++
+        capturing = false
+        try { pendingCancel?.cancel() } catch (_: Exception) {}
+        pendingCancel = null
+    }
 
     /** Gets a fresh location (up to 8 s), else a recent last-known one, saves it and notifies. */
     fun capture(ctx: Context) {
@@ -98,11 +118,18 @@ object Parking {
         }
         val lm = app.getSystemService(LocationManager::class.java) ?: return
         capturing = true
+        val gen = ++generation
         var done = false
         fun finish(loc: Location?) {
             if (done) return
             done = true
+            if (gen != generation) {
+                Log.i(JamesService.TAG, "Car reconnected before the spot was saved; ignoring")
+                return
+            }
             capturing = false
+            pendingCancel = null
+            if (!isEnabled(app) || !hasForegroundPermission(app)) return
             val best = loc ?: bestLastKnown(lm)
             if (best == null) {
                 Log.w(JamesService.TAG, "Parking spot not saved: no location available")
@@ -127,6 +154,7 @@ object Parking {
                     return
                 }
                 val cancel = CancellationSignal()
+                pendingCancel = cancel
                 lm.getCurrentLocation(provider, cancel, executor) { loc -> main.post { finish(loc) } }
                 main.postDelayed({
                     if (!done) {
@@ -140,6 +168,7 @@ object Parking {
         } catch (e: SecurityException) {
             Log.w(JamesService.TAG, "Location refused: ${e.message}")
             capturing = false
+            pendingCancel = null
         } catch (e: Exception) {
             Log.w(JamesService.TAG, "Location failed: ${e.message}")
             finish(null)
@@ -151,7 +180,7 @@ object Parking {
         return try {
             lm.getProviders(true)
                 .mapNotNull { p -> try { lm.getLastKnownLocation(p) } catch (_: SecurityException) { null } }
-                .filter { now - it.time < MAX_LAST_KNOWN_AGE_MS }
+                .filter { now - it.time in 0 until MAX_LAST_KNOWN_AGE_MS }
                 .minByOrNull { it.accuracy }
         } catch (e: Exception) {
             null
@@ -171,11 +200,17 @@ object Parking {
         Intent(Intent.ACTION_VIEW, Uri.parse("geo:${spot.lat},${spot.lng}?q=${spot.lat},${spot.lng}(My car)"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+    /** Google Maps walking directions if it's installed, otherwise any maps app. */
+    private fun bestIntent(ctx: Context, spot: Spot): Intent {
+        val maps = directionsIntent(spot)
+        return if (maps.resolveActivity(ctx.packageManager) != null) maps else fallbackIntent(spot)
+    }
+
     /** Opens directions; falls back to any maps app if Google Maps isn't installed. */
     fun openDirections(ctx: Context): Boolean {
         val spot = last(ctx) ?: return false
         return try {
-            ctx.startActivity(directionsIntent(spot))
+            ctx.startActivity(bestIntent(ctx, spot))
             true
         } catch (e: Exception) {
             try {
@@ -190,10 +225,12 @@ object Parking {
     fun timeLabel(ctx: Context, spot: Spot): String {
         val now = System.currentTimeMillis()
         val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(spot.timeMs))
-        val days = ((now - spot.timeMs) / 86_400_000L).toInt()
-        return when (days) {
-            0 -> "today at $time"
-            1 -> "yesterday at $time"
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val parkedDate = Instant.ofEpochMilli(spot.timeMs).atZone(zone).toLocalDate()
+        return when (parkedDate) {
+            today -> "today at $time"
+            today.minusDays(1) -> "yesterday at $time"
             else -> DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(spot.timeMs))
         }
     }
@@ -211,7 +248,7 @@ object Parking {
             )
         }
         val open = PendingIntent.getActivity(
-            ctx, 70, directionsIntent(spot),
+            ctx, 70, bestIntent(ctx, spot),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val n = NotificationCompat.Builder(ctx, CHANNEL_ID)

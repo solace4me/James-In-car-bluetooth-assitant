@@ -20,7 +20,10 @@ class BluetoothCarReceiver : BroadcastReceiver() {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
         }
-        val address = device?.address
+        val address = try { device?.address } catch (_: SecurityException) {
+            Log.w(JamesService.TAG, "Ignoring Bluetooth event: permission was revoked")
+            return
+        }
         if (!Prefs.isCar(context, address)) return
 
         Log.i(JamesService.TAG, "ACL event ${intent.action} for car $address")

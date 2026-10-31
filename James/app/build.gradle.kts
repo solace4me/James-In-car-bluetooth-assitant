@@ -13,8 +13,8 @@ android {
         applicationId = "com.james.assistant"
         minSdk = 29          // Android 10+
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.6-places-parking"
+        versionCode = 21
+        versionName = "0.8"
     }
 
     buildTypes {
@@ -30,6 +30,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -43,4 +47,8 @@ dependencies {
         exclude(group = "net.java.dev.jna")   // added once below, as the Android (aar) build
     }
     implementation("net.java.dev.jna:jna:5.18.1@aar")
+
+    // Unit tests (gradlew test): plain JVM, no phone needed
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

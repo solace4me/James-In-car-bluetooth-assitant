@@ -20,6 +20,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -47,7 +48,9 @@ class JamesService : Service() {
         const val ACTION_PLAY_FOLDER = "com.james.assistant.PLAY_FOLDER"
         const val EXTRA_FOLDER = "folder"
         const val ACTION_SHOW_OVERLAY = "com.james.assistant.SHOW_OVERLAY"
-        /** Setup screen: the Picovoice key or permissions changed, restart the wake word. */
+        /** James's window (sheet, bubble or setup) is on screen: a chance to unlock the mic. */
+        const val ACTION_UI_VISIBLE = "com.james.assistant.UI_VISIBLE"
+        /** Setup screen: the voice model or permissions changed, restart the wake word. */
         const val ACTION_WAKE_RELOAD = "com.james.assistant.WAKE_RELOAD"
 
         private const val CHANNEL_ID = "james_active"
@@ -98,19 +101,38 @@ class JamesService : Service() {
     private var disconnectPending = false
     private var statusText = ""
     private var consecutiveErrors = 0
+    private var playbackGeneration = 0L
+    private var destroyed = false
+
+    private fun invalidatePlaybackRequests() {
+        playbackGeneration++
+        audioWaitToken++
+        overlay?.cancelPendingMusic()
+    }
+
+    private fun mayPlay() = !destroyed && isRunning && !disconnectPending
+
+    private fun mayApplyPlayback(request: Long) = mayPlay() && request == playbackGeneration
+
+    private fun pausePlayback() {
+        invalidatePlaybackRequests()
+        player?.pause()
+    }
 
     private var speaker: Speaker? = null
     private var overlay: OverlayController? = null
     private var wake: WakeWord? = null
     private var wakeListening = false
+    private var micBusyNow = false
+    private var micRefreshed = false
 
     /** What the overlay's buttons do. */
     private val overlayActions = object : OverlayController.Actions {
         override fun playFolder(name: String) {
-            if (playFolderNamed(name)) speaker?.say("Playing ${OverlayController.spoken(name)}")
+            playFolderNamed(name) { ok -> if (ok) speaker?.say("Playing ${OverlayController.spoken(name)}") }
         }
         override fun shuffleAll() {
-            if (playFolderNamed(MusicLibrary.ALL_SONGS)) speaker?.say("Shuffling all your songs")
+            playFolderNamed(MusicLibrary.ALL_SONGS) { ok -> if (ok) speaker?.say("Shuffling all your songs") }
         }
         override fun currentFolder(): String? = this@JamesService.currentFolder
         override fun nowPlaying(): OverlayController.NowPlaying? {
@@ -120,7 +142,7 @@ class JamesService : Service() {
                 title = item.mediaMetadata.title?.toString() ?: "Unknown song",
                 folder = this@JamesService.currentFolder ?: "",
                 trackUri = item.localConfiguration?.uri,
-                isPlaying = p.isPlaying,
+                isPlaying = p.playWhenReady,
                 positionMs = p.currentPosition,
                 durationMs = if (p.duration == C.TIME_UNSET) 0L else p.duration
             )
@@ -136,21 +158,25 @@ class JamesService : Service() {
         override fun listeningStarted() = ensureMicType()
         override fun micBusy(busy: Boolean) {
             // The wake word and the speech recogniser can't share the mic: take turns.
+            micBusyNow = busy
             if (busy) wake?.pause() else wake?.resume()
         }
+        override fun uiVisible() = refreshMicAccess()
         override fun play() {
+            if (!mayPlay()) return
             val p = player
             if (p == null || p.mediaItemCount == 0) resumeOrStartDefault()
             else {
+                invalidatePlaybackRequests()
                 if (p.playbackState == Player.STATE_IDLE) p.prepare()
                 p.play()
             }
         }
-        override fun pause() { player?.pause() }
+        override fun pause() = pausePlayback()
         override fun statusLine(): String = when {
             disconnectPending -> "Car disconnected"
             statusText.startsWith("Waiting") -> "Waiting for car audio…"
-            wakeListening -> "Say \"${wake?.phrase ?: "Hey James"}\" any time"
+            wakeListening -> "Say \"${wake?.phrase ?: WakePhrase.PHRASE}\" any time"
             else -> "Connected to ${Prefs.carName(this@JamesService) ?: "your car"}"
         }
     }
@@ -176,6 +202,7 @@ class JamesService : Service() {
             }
 
             ACTION_CONNECTED -> {
+                if (destroyed) return START_NOT_STICKY
                 val firstStart = !isRunning
                 val wasDisconnecting = disconnectPending
                 if (firstStart || wasDisconnecting) {
@@ -184,12 +211,13 @@ class JamesService : Service() {
                 isRunning = true
                 disconnectPending = false
                 handler.removeCallbacks(stopRunnable)
+                Parking.cancelPending()             // a location request from a quick glitch must not land
                 Parking.cancelNotification(this)   // back in the car: "find my car" no longer needed
                 // Must be called promptly after every startForegroundService().
                 if (!goForeground()) return START_NOT_STICKY
 
                 if (firstStart) {
-                    Toast.makeText(applicationContext, "James is active", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(applicationContext, "Azarah is active", Toast.LENGTH_SHORT).show()
                     if (speaker == null) speaker = Speaker(this)
                     showOverlay()
                     startWakeWord()
@@ -201,7 +229,10 @@ class JamesService : Service() {
                     // Car came back within 10 s: carry on (or start, if music never got going).
                     whenCarAudioReady {
                         val p = player
-                        if (p != null && p.mediaItemCount > 0) p.play() else resumeOrStartDefault()
+                        if (p != null && p.mediaItemCount > 0) {
+                            invalidatePlaybackRequests()
+                            p.play()
+                        } else resumeOrStartDefault()
                     }
                 }
             }
@@ -211,8 +242,7 @@ class JamesService : Service() {
                 // First disconnect of this stop: remember where the car is parked.
                 if (!disconnectPending) Parking.capture(this)
                 disconnectPending = true
-                audioWaitToken++   // cancel any "waiting for car audio"
-                player?.pause()
+                pausePlayback()   // cancel queued scans as well as "waiting for car audio"
                 saveResumePoint()
                 statusText = "${Prefs.carName(this) ?: "Car"} disconnected. Stopping in 10 seconds…"
                 updateNotification()
@@ -229,6 +259,7 @@ class JamesService : Service() {
                     ACTION_TOGGLE -> togglePlay()
                     ACTION_PLAY_FOLDER -> intent?.getStringExtra(EXTRA_FOLDER)?.let { playFolderNamed(it) }
                     ACTION_SHOW_OVERLAY -> showOverlay()
+                    ACTION_UI_VISIBLE -> refreshMicAccess()
                     ACTION_WAKE_RELOAD -> {
                         wake?.release()
                         wake = null
@@ -265,7 +296,7 @@ class JamesService : Service() {
         statusText = "Waiting for car audio…"
         updateNotification()
         fun attempt(n: Int) {
-            CarConnection.check(this) { ready ->
+            CarConnection.check(this, musicReady = true) { ready ->
                 if (token != audioWaitToken || !isRunning || disconnectPending) return@check
                 when {
                     ready -> {
@@ -290,17 +321,39 @@ class JamesService : Service() {
      * Falls back to the default folder if that song or folder is gone.
      */
     private fun resumeOrStartDefault() {
-        val r = Prefs.loadResume(this)
-        if (r != null) {
-            val folder = MusicLibrary.folder(this, r.folder)
-            val index = folder?.tracks?.indexOfFirst { it.uri.toString() == r.trackUri } ?: -1
-            if (folder != null && index >= 0) {
-                Log.i(TAG, "Resuming ${folder.name}, track ${index + 1} at ${r.positionMs / 1000}s")
-                playFolder(folder, index, r.positionMs)
-                return
+        if (!mayPlay()) return
+        invalidatePlaybackRequests()
+        val request = playbackGeneration
+        // Reading the music library can take a moment with many songs: do it off the main thread.
+        onLibrary {
+            val r = Prefs.loadResume(this)
+            val folder = r?.let { MusicLibrary.folder(this, it.folder) }
+            val index = if (r == null) -1 else folder?.tracks?.indexOfFirst { it.uri.toString() == r.trackUri } ?: -1
+            val fallback = if (folder == null || index < 0) MusicLibrary.folder(this, MusicLibrary.DEFAULT_FOLDER) else null
+            handler.post {
+                if (!mayApplyPlayback(request)) return@post
+                if (folder != null && index >= 0) {
+                    Log.i(TAG, "Resuming ${folder.name}, track ${index + 1} at ${r.positionMs / 1000}s")
+                    playFolder(folder, index, r.positionMs)
+                } else {
+                    playDefault(fallback)
+                }
             }
         }
-        startDefaultMusic()
+    }
+
+    /** Single background thread for music library lookups; results come back on the main thread. */
+    private val library = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun onLibrary(work: () -> Unit) {
+        if (library.isShutdown) return
+        try {
+            library.execute {
+                try { work() } catch (e: Exception) { Log.e(TAG, "Music library: ${e.message}", e) }
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            // James is shutting down
+        }
     }
 
     /** Remembers the current folder, song and position. */
@@ -312,35 +365,56 @@ class JamesService : Service() {
     }
 
     private fun startDefaultMusic() {
-        val folder = MusicLibrary.folder(this, MusicLibrary.DEFAULT_FOLDER)
+        if (!mayPlay()) return
+        invalidatePlaybackRequests()
+        val request = playbackGeneration
+        onLibrary {
+            val folder = MusicLibrary.folder(this, MusicLibrary.DEFAULT_FOLDER)
+            handler.post { if (mayApplyPlayback(request)) playDefault(folder) }
+        }
+    }
+
+    /** Main thread: plays the default folder, or explains that it's empty. */
+    private fun playDefault(folder: MusicFolder?) {
         if (folder == null || folder.tracks.isEmpty()) {
             Log.w(TAG, "No songs in Music/${MusicLibrary.DEFAULT_FOLDER}")
             statusText = "No songs in Music/${MusicLibrary.DEFAULT_FOLDER}"
-            Toast.makeText(applicationContext, "James: no songs in Music/${MusicLibrary.DEFAULT_FOLDER}", Toast.LENGTH_LONG).show()
+            Toast.makeText(applicationContext, "Azarah: no songs in Music/${MusicLibrary.DEFAULT_FOLDER}", Toast.LENGTH_LONG).show()
             updateNotification()
             return
         }
         playFolder(folder)
     }
 
-    /** Returns false if that folder has no songs. */
-    private fun playFolderNamed(name: String): Boolean {
-        val folder = MusicLibrary.folder(this, name)
-        if (folder == null || folder.tracks.isEmpty()) {
-            Toast.makeText(applicationContext, "James: no songs in Music/$name", Toast.LENGTH_LONG).show()
-            speaker?.say("Sorry, I couldn't find songs in ${OverlayController.spoken(name)}")
-            return false
+    /** Looks the folder up in the background, then plays it. [then] gets false if it has no songs. */
+    private fun playFolderNamed(name: String, then: ((Boolean) -> Unit)? = null) {
+        if (!mayPlay()) return
+        invalidatePlaybackRequests()
+        val request = playbackGeneration
+        onLibrary {
+            val folder = MusicLibrary.folder(this, name)
+            handler.post {
+                if (!mayApplyPlayback(request)) return@post
+                if (folder == null || folder.tracks.isEmpty()) {
+                    Toast.makeText(applicationContext, "Azarah: no songs in Music/$name", Toast.LENGTH_LONG).show()
+                    speaker?.say("Sorry, I couldn't find songs in ${OverlayController.spoken(name)}")
+                    then?.invoke(false)
+                } else {
+                    playFolder(folder)
+                    then?.invoke(true)
+                }
+            }
         }
-        playFolder(folder)
-        return true
     }
 
     private fun togglePlay() {
+        if (!mayPlay()) return
         val p = player
         when {
             p == null || p.mediaItemCount == 0 -> resumeOrStartDefault()
-            p.isPlaying -> p.pause()
+            p.playWhenReady -> pausePlayback()
             else -> {
+                invalidatePlaybackRequests()
                 if (p.playbackState == Player.STATE_IDLE) p.prepare()   // recover after an error
                 p.play()
             }
@@ -404,11 +478,41 @@ class JamesService : Service() {
 
     // ---------------- Wake word ----------------
 
+    /**
+     * Android 11+ blocks the microphone for apps started in the background (as James is, when
+     * the car connects): the wake word then hears only silence. Once James is on screen, Android
+     * allows it, so re-start the foreground service with the microphone type and restart the
+     * listener. Done once per drive.
+     */
+    private fun refreshMicAccess() {
+        if (micRefreshed || !isRunning || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
+            currentFgsType = type
+            micTypeActive = true
+            micRefreshed = true
+            Log.i(TAG, "Microphone unlocked while Azarah is on screen; restarting the wake word")
+            // Restart the listener so it records with real mic access (unless James is mid-command).
+            if (!micBusyNow) {
+                wake?.pause()
+                wake?.resume(300)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Microphone still not allowed: ${e.message}")
+        }
+    }
+
     private fun startWakeWord() {
         if (wake == null) {
             wake = WakeWord(
                 this,
-                onWake = { onWakeWord() },
+                onWake = { command -> onWakeWord(command) },
                 onStatus = { listening, status ->
                     wakeListening = listening
                     overlay?.setWakeListening(listening)
@@ -417,17 +521,18 @@ class JamesService : Service() {
             )
         }
         ensureMicType()   // the mic must be allowed for this service before listening in the background
-        wake?.start()
+        if (!micBusyNow) wake?.start()
     }
 
-    private fun onWakeWord() {
-        Log.i(TAG, "Wake word heard")
+    /** [command]: said in the same breath ("Azarah, play the music"), or null to ask and listen. */
+    private fun onWakeWord(command: String?) {
+        Log.i(TAG, "Wake word heard" + (command?.let { ", command: $it" } ?: ""))
         val o = overlay ?: OverlayController(this, overlayActions).also { overlay = it }
         if (!o.canDraw()) {
-            speaker?.say("I need permission to show over other apps. Please open James setup.")
+            speaker?.say("I need permission to show over other apps. Please open Azarah setup.")
             return
         }
-        o.voiceCommand()
+        o.voiceCommand(command)
     }
 
     // ---------------- Overlay ----------------
@@ -458,6 +563,7 @@ class JamesService : Service() {
     }
 
     private fun playFolder(folder: MusicFolder, startIndex: Int = 0, startPositionMs: Long = 0) {
+        if (!mayPlay() || folder.tracks.isEmpty()) return
         val p = ensurePlayer()
         val items = folder.tracks.map { t ->
             MediaItem.Builder()
@@ -476,6 +582,7 @@ class JamesService : Service() {
         Log.i(TAG, "Playing ${folder.name} (${items.size} tracks)")
     }
 
+    @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
     private fun ensurePlayer(): ExoPlayer {
         player?.let { return it }
         val p = ExoPlayer.Builder(this)
@@ -491,6 +598,14 @@ class JamesService : Service() {
             .build()
         p.repeatMode = Player.REPEAT_MODE_ALL
         p.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // MediaSession sends steering-wheel/headset Pause straight to the player.
+                // Buffering and transient audio-focus changes must not cancel a requested playlist.
+                if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+                    invalidatePlaybackRequests()
+                }
+                updateNotification()
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) consecutiveErrors = 0 else saveResumePoint()
                 updateNotification()
@@ -517,7 +632,15 @@ class JamesService : Service() {
             }
         })
         // The media session is what lets the car's steering-wheel and earbud buttons control James.
-        session = MediaSession.Builder(this, p).build()
+        val controls = object : ForwardingPlayer(p) {
+            // An explicit controller Pause must cancel pending work even if already paused.
+            override fun pause() = pausePlayback()
+            override fun play() = overlayActions.play()
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) overlayActions.play() else pausePlayback()
+            }
+        }
+        session = MediaSession.Builder(this, controls).build()
         player = p
         return p
     }
@@ -597,7 +720,7 @@ class JamesService : Service() {
         // Tapping the notification opens James's overlay.
         val openOverlay = serviceIntent(ACTION_SHOW_OVERLAY, 5)
         val title = currentTitle()
-        val playing = player?.isPlaying == true
+        val playing = player?.playWhenReady == true
         val text = when {
             disconnectPending -> statusText
             title != null && consecutiveErrors == 0 -> "♪ $title  ·  $currentFolder"
@@ -606,7 +729,7 @@ class JamesService : Service() {
 
         val b = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_james)
-            .setContentTitle("James is active")
+            .setContentTitle("Azarah is active")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -626,7 +749,7 @@ class JamesService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "James active", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "Azarah active", NotificationManager.IMPORTANCE_LOW)
             )
         }
     }
@@ -654,7 +777,8 @@ class JamesService : Service() {
     }
 
     private fun shutDown() {
-        audioWaitToken++
+        destroyed = true
+        invalidatePlaybackRequests()
         handler.removeCallbacksAndMessages(null)
         isRunning = false
         disconnectPending = false
@@ -665,7 +789,9 @@ class JamesService : Service() {
     }
 
     override fun onDestroy() {
-        audioWaitToken++
+        destroyed = true
+        invalidatePlaybackRequests()
+        library.shutdownNow()
         handler.removeCallbacksAndMessages(null)
         isRunning = false
         releasePlayer()
