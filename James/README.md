@@ -8,6 +8,10 @@ Azarah is an Android app that wakes up when your phone connects to your car's Bl
 
 Version: **0.7.1** (see `versionName` in `app/build.gradle.kts`).
 
+## License
+
+This project is licensed under the [Apache License 2.0](../LICENSE).
+
 ## What it does
 
 **When the car connects**
