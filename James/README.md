@@ -10,7 +10,9 @@ Version: **0.7.1** (see `versionName` in `app/build.gradle.kts`).
 
 ## License
 
-This project is licensed under the [Apache License 2.0](../LICENSE).
+This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](../LICENSE).
+
+The Azarah name and logo are not covered by the GPL-3.0 license and may not be used in copies of this project.
 
 ## What it does
 
