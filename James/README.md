@@ -150,7 +150,7 @@ Logs: plug the phone in and run `adb logcat -s James`.
 
 ## Changelog
 
-- **0.8** (not yet built): The app is now called **Azarah**, with an "A" icon and bubble and a female voice where the phone has one; the default music folder is `Azarah_Default` (an existing `James_Default` still works). Wake word is "Azarah" ("Hey / Hello / Hi / Okay Azarah"), and a command can follow in one breath ("Azarah, play the music"). Fewer false wakes: only finished utterances count, each word needs good confidence, and sound-alike decoy words absorb near-misses. "Sorry, I didn't catch that" listens again instead of going back to sleep. Fixes the Go countdown freezing on misheard words, duplicate place names on rename, and a lost speech callback during start-up.
+- **0.8** (not yet built): The app is now called **Azarah**, with an "A" icon and bubble and a female voice where the phone has one; the default music folder is `Azarah_Default` (an existing `Azarah_Default` still works). Wake word is "Azarah" ("Hey / Hello / Hi / Okay Azarah"), and a command can follow in one breath ("Azarah, play the music"). Fewer false wakes: only finished utterances count, each word needs good confidence, and sound-alike decoy words absorb near-misses. "Sorry, I didn't catch that" listens again instead of going back to sleep. Fixes the Go countdown freezing on misheard words, duplicate place names on rename, and a lost speech callback during start-up.
 - **0.7.1**: Cancels stale music and voice requests across disconnect, Pause and trip cancellation; handles repeated controller Pause and buffering; preserves destination/playlist names and matches punctuated saved places; fixes parking cancellation and calendar labels; guards revoked Bluetooth permission; defers wake reload during commands and cleans up native listeners; supports accessibility clicks on the bubble. Adds Android lifecycle regression tests.
 - **0.7**: Unit tests and the car checklist; voice-command logic moved into `Commands.kt`; short words no longer match playlists by accident.
 - **0.6.2**: Autoplay waits for the car's music channel; wake word no longer restarts during a command; music library read in the background; no stale parking notifications; parking notification works without Google Maps.
@@ -159,5 +159,7 @@ Logs: plug the phone in and run `adb logcat -s James`.
 - **0.5**: "Hey Azarah" with Vosk and voice commands; all Music folders shown, including unindexed songs.
 - **0.4**: Maps by voice with Go countdown and quick picks.
 - **0.3**: Bubble and sheet overlay, now-playing card, playlist list, spoken feedback.
-- **0.2**: Music from `James_Default` on connect, resume where it stopped, car and earbud buttons.
+- **0.2**: Music from `Azarah_Default` on connect, resume where it stopped, car and earbud buttons.
 - **0.1**: Starts and stops with the car's Bluetooth.
+
+_The Azarah name and logo are not covered by the GPL and may not be used for modified versions._
